@@ -4,155 +4,39 @@ export default {
 
 		switch (url.pathname) {
 			case '/submit': {
-				if (request.method === 'POST') {
-					try {
-						// Parse the submitted form data
-						const formData = await request.json();
-						const { name, category, source, url: submittedUrl, description, skip_urlscan, skip_virustotal, skip_cloudflare } = formData;
-
-						// Validate required fields
-						if (!name || !category || !source || !submittedUrl || !description) {
-							return new Response('All fields are required.', { status: 400 });
-						}
-
-						// Generate a UUID for the submission
-						const id = crypto.randomUUID();
-						console.log('REPORT UUID: ', id);
-
-						// Initialize result object
-						let result = {
-							success: true,
-							id, // Always return the report UUID
-						};
-
-						// If both APIs are skipped, return early with the result
-						if (skip_urlscan && skip_virustotal && skip_cloudflare) {
-							return new Response(JSON.stringify(result), {
-								status: 200,
-								headers: { 'Content-Type': 'application/json' },
-							});
-						}
-
-						// URLSCAN.IO API LOGIC
-						let urlscanUUID = null;
-						if (!skip_urlscan) {
-							const urlscanResponse = await fetch('https://urlscan.io/api/v1/scan/', {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									'API-Key': env.URLSCAN_API_KEY, // Add this to wrangler.toml
-								},
-								body: JSON.stringify({
-									url: submittedUrl,
-									visibility: 'unlisted',
-								}),
-							});
-
-							if (!urlscanResponse.ok) {
-								console.log('ERROR');
-								console.error('urlscan.io API Error:', await urlscanResponse.text());
-								return new Response('urlscan.io API Error', { status: 500 });
-							}
-
-							const urlscanData = await urlscanResponse.json();
-							urlscanUUID = urlscanData.uuid;
-							result.scan_uuid = urlscanUUID;
-							console.log('URLScan UUID: ', urlscanUUID);
-						}
-
-						// VIRUSTOTAL API LOGIC
-						let virustotalScanID = null;
-						if (!skip_virustotal) {
-							const virustotalResponse = await fetch('https://www.virustotal.com/api/v3/urls', {
-								method: 'POST',
-								headers: {
-									accept: 'application/json',
-									'content-type': 'application/x-www-form-urlencoded',
-									'x-apikey': env.VIRUSTOTAL_API_KEY,
-								},
-								body: new URLSearchParams({ url: submittedUrl }),
-							});
-
-							if (!virustotalResponse.ok) {
-								console.log('ERROR');
-								console.error('VirusTotal API Error:', await virustotalResponse.text());
-								return new Response('VirusTotal API Error', { status: 500 });
-							}
-
-							const virustotalData = await virustotalResponse.json();
-							const virustotalScanResult = virustotalData.data.id;
-							const cleanScanId = virustotalScanResult.substring(2, virustotalScanResult.lastIndexOf('-'));
-							virustotalScanID = cleanScanId;
-							result.virustotal_scan_id = virustotalScanID;
-							console.log('VirusTotal Scan ID: ', virustotalScanID);
-						}
-
-						// CLOUDFLARE URLSCAN API LOGIC
-						let cloudflareScanUUID = null;
-						if (!skip_cloudflare) {
-							const cloudflareResponse = await fetch(
-								`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/urlscanner/scan`,
-								{
-									method: 'POST',
-									headers: {
-										'Content-Type': 'application/json',
-										'X-Auth-Key': `${env.CLOUDFLARE_API_KEY}`,
-										'X-Auth-Email': `${env.CLOUDFLARE_USER_EMAIL}`,
-									},
-									body: JSON.stringify({
-										screenshotsResolutions: ['desktop'],
-										url: submittedUrl,
-										visibility: 'Unlisted',
-									}),
-								}
-							);
-
-							if (!cloudflareResponse.ok) {
-								console.log('ERROR');
-								console.error('Cloudflare URLScanner API Error:', await cloudflareResponse.text());
-								return new Response('Cloudflare URLScanner API Error', { status: 500 });
-							}
-
-							const cloudflareData = await cloudflareResponse.json();
-							cloudflareScanUUID = cloudflareData.result.uuid;
-							result.cloudflare_scan_uuid = cloudflareScanUUID;
-							console.log('Cloudflare URLScan UUID: ', cloudflareScanUUID);
-						}
-
-						// D1 DATABASE LOGIC: Insert the data into the D1 database with the new IDs
-						try {
-							await env.DB.prepare(
-								`INSERT INTO reports (id, name, category, source, url, description, urlscan_uuid, virustotal_scan_id, cloudflare_scan_uuid)
-				   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-							)
-								.bind(id, name, category, source, submittedUrl, description, urlscanUUID, virustotalScanID, cloudflareScanUUID)
-								.run();
-							console.log('D1 UPLOAD SUCCESS!');
-						} catch (error) {
-							console.log('ERROR');
-							console.error('D1 Database Error:', error);
-							return new Response('Database Error', { status: 500 });
-						}
-
-						// Respond with the results from URLScan, VirusTotal, and/or Cloudflare
-						return new Response(JSON.stringify(result), {
-							status: 200,
-							headers: { 'Content-Type': 'application/json' },
-						});
-					} catch (error) {
-						console.log('ERROR');
-						console.error('Error handling submission:', error);
-						return new Response('Internal Server Error', { status: 500 });
-					}
-				} else {
+				if (request.method !== 'POST') {
 					return new Response('Method Not Allowed', { status: 405 });
+				}
+
+				if (request.headers.get('Content-Type') !== 'application/json') {
+					return new Response('Unsupported Media Type', { status: 415 });
+				}
+
+				try {
+					const formData = await request.json();
+					const result = await handleSubmission(formData, env);
+					return new Response(JSON.stringify(result), {
+						status: 200,
+						headers: {
+							'Content-Type': 'application/json',
+							'Access-Control-Allow-Origin': '*',
+						},
+					});
+				} catch (error) {
+					console.log('ERROR');
+					console.error('Error handling submission:', error);
+					const status = error.status || 500;
+					return new Response(error.message || 'Internal Server Error', { status });
 				}
 			}
 
 			case '/random': {
 				return new Response(crypto.randomUUID(), {
 					status: 200,
-					headers: { 'Content-Type': 'text/plain' },
+					headers: {
+						'Content-Type': 'text/plain',
+						'Access-Control-Allow-Origin': '*',
+					},
 				});
 			}
 
@@ -162,3 +46,173 @@ export default {
 		}
 	},
 };
+
+// Helper Function: Handle Submission
+async function handleSubmission(formData, env) {
+	validateFormData(formData);
+
+	const id = crypto.randomUUID();
+	console.log('REPORT UUID:', id);
+
+	let result = { success: true, id };
+
+	// Parallel API calls with error handling
+	const scanPromises = [
+		formData.skip_urlscan ? null : callApiWithTimeout(() => callUrlScanAPI(formData.url, env), 8000),
+		formData.skip_virustotal ? null : callApiWithTimeout(() => callVirusTotalAPI(formData.url, env), 8000),
+		formData.skip_cloudflare ? null : callApiWithTimeout(() => callCloudflareAPI(formData.url, env), 8000),
+	].filter(Boolean);
+
+	const scanResults = await Promise.allSettled(scanPromises);
+
+	// Collect results and errors
+	scanResults.forEach((resultData) => {
+		if (resultData.status === 'fulfilled') {
+			Object.assign(result, resultData.value);
+		} else {
+			console.log('ERROR');
+			console.warn('API Call Error:', resultData.reason);
+			Object.assign(result, resultData.reason); // Add error messages
+		}
+	});
+
+	// Save to the database
+	await saveReportToDB(env.DB, id, formData, result);
+
+	return result;
+}
+
+// Validate incoming data
+function validateFormData({ name, category, source, url, description }) {
+	if (!name || !category || !source || !url) {
+		throw { status: 400, message: 'All fields are required, except description.' };
+	}
+
+	if (!/^https?:\/\/[^\s$.?#].[^\s]*$/.test(url)) {
+		throw { status: 400, message: 'Invalid URL format.' };
+	}
+}
+
+// Timeout wrapper for API calls
+async function callApiWithTimeout(apiCall, timeoutMs) {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => reject({ message: 'API Timeout' }), timeoutMs);
+		apiCall()
+			.then(resolve)
+			.catch(reject)
+			.finally(() => clearTimeout(timeout));
+	});
+}
+
+// API: URLScan
+async function callUrlScanAPI(submittedUrl, env) {
+	const response = await fetch('https://urlscan.io/api/v1/scan/', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'API-Key': env.URLSCAN_API_KEY,
+		},
+		body: JSON.stringify({ url: submittedUrl, visibility: 'unlisted' }),
+	});
+
+	if (!response.ok) {
+		console.log('ERROR');
+		throw { scan_uuid_error: 'Failed to fetch from URLScan API' };
+	}
+
+	const data = await response.json();
+	if (!data.uuid) {
+		console.log('ERROR');
+		throw { scan_uuid_error: 'Invalid data from URLScan API' };
+	}
+
+	return { scan_uuid: data.uuid };
+}
+
+// API: VirusTotal
+async function callVirusTotalAPI(submittedUrl, env) {
+	try {
+		const response = await fetch('https://www.virustotal.com/api/v3/urls', {
+			method: 'POST',
+			headers: {
+				accept: 'application/json',
+				'content-type': 'application/x-www-form-urlencoded',
+				'x-apikey': env.VIRUSTOTAL_API_KEY,
+			},
+			body: new URLSearchParams({ url: submittedUrl }),
+		});
+
+		if (!response.ok) {
+			throw { virustotal_scan_id_error: 'Failed to fetch from VirusTotal API' };
+		}
+
+		const data = await response.json();
+
+		if (data && data.data && data.data.id) {
+			// Extract the scan ID using the correct substring logic
+			const rawScanId = data.data.id;
+			const cleanScanId = rawScanId.substring(2, rawScanId.lastIndexOf('-'));
+
+			return { virustotal_scan_id: cleanScanId };
+		} else {
+			throw { virustotal_scan_id_error: 'Missing or invalid Scan ID in VirusTotal API response' };
+		}
+	} catch (error) {
+		console.warn('VirusTotal API Error:', error);
+		throw { virustotal_scan_id_error: 'VirusTotal API call failed or returned invalid data' };
+	}
+}
+
+// API: Cloudflare
+async function callCloudflareAPI(submittedUrl, env) {
+	const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/urlscanner/scan`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Auth-Key': env.CLOUDFLARE_API_KEY,
+			'X-Auth-Email': env.CLOUDFLARE_USER_EMAIL,
+		},
+		body: JSON.stringify({ url: submittedUrl, visibility: 'unlisted' }),
+	});
+
+	if (!response.ok) {
+		console.log('ERROR');
+		throw { cloudflare_scan_uuid_error: 'Failed to fetch from Cloudflare URLScanner API' };
+	}
+
+	const data = await response.json();
+	if (!data.result || !data.result.uuid) {
+		console.log('ERROR');
+		throw { cloudflare_scan_uuid_error: 'Invalid data from Cloudflare API' };
+	}
+
+	return { cloudflare_scan_uuid: data.result.uuid };
+}
+
+// Database Save Function
+async function saveReportToDB(db, id, formData, result) {
+	try {
+		await db
+			.prepare(
+				`INSERT INTO reports (id, name, category, source, url, description, urlscan_uuid, virustotal_scan_id, cloudflare_scan_uuid)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.bind(
+				id,
+				formData.name,
+				formData.category,
+				formData.source,
+				formData.url,
+				formData.description,
+				result.scan_uuid || null,
+				result.virustotal_scan_id || null,
+				result.cloudflare_scan_uuid || null
+			)
+			.run();
+
+		console.log('D1 Database upload success!');
+	} catch (error) {
+		console.log('ERROR');
+		throw { status: 500, message: 'Database Error', error };
+	}
+}
