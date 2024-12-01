@@ -12,5 +12,5 @@ CREATE TABLE reports (
     urlscan_uuid TEXT,          -- URLScan.io UUID
     virustotal_scan_id TEXT,    -- VirusTotal Scan ID
     cloudflare_scan_uuid TEXT,  -- Cloudflare URLScanner UUID
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP  -- Unix timestamp to store the submission time
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP  -- Unix timestamp to store the submission time in Coordinated Universal Time (UTC)
 );
