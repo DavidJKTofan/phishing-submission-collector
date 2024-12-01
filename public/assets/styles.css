@@ -98,6 +98,12 @@ button:hover {
 	display: none;
 }
 
+footer {
+	text-align: center;
+	font-size: 0.7rem;
+	color: #555;
+}
+
 /* Add responsiveness for smaller devices */
 @media (max-width: 768px) {
 	.top-link {
