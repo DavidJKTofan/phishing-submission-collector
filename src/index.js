@@ -14,6 +14,30 @@ export default {
 
 				try {
 					const formData = await request.json();
+
+					// Turnstile injects a token in "turnstile-token".
+					const token = formData['turnstile-token'];
+					// const ip = request.headers.get('CF-Connecting-IP');
+					// console.log(ip);
+					// Validate the token by calling the Turnstile API.
+					let turnstileFormData = new FormData();
+					turnstileFormData.append('secret', env.TURNSTILE_SECRET_KEY); // Your Turnstile Secret Key
+					turnstileFormData.append('response', token);
+					// turnstileFormData.append('remoteip', ip);
+					const turnstileUrl = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+					const turnstileResult = await fetch(turnstileUrl, {
+						body: turnstileFormData,
+						method: 'POST',
+					});
+					const outcome = await turnstileResult.json();
+					// console.log('TURNSTILE OUTCOME: ', outcome);
+					if (!outcome.success) {
+						console.log('ERROR');
+						console.error('Error with Turnstile server-side validation!');
+						return new Response('Turnstile validation failed', { status: 400 });
+					}
+
+					// Continue if Turnstile server-side validation is a success
 					const result = await handleSubmission(formData, env);
 					return new Response(JSON.stringify(result), {
 						status: 200,

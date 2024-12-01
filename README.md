@@ -16,8 +16,11 @@ project/
 │
 ├── public/
 │   ├── index.html            # Frontend HTML
-│   ├── scripts.js            # Frontend Scripts
-│   └── styles.css            # Frontend Stylesheets
+│   ├── assets/
+│   │   ├── scripts.js        # Frontend Scripts
+│   │   ├── styles.css        # Frontend Stylesheets
+│   │   └── ...               # Other assets
+│   └── ...                   # Other assets
 │
 └── wrangler.toml             # Cloudflare Workers configuration
 ```
@@ -42,6 +45,7 @@ VIRUSTOTAL_API_KEY="<YOUR_API_KEY_HERE>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
 CLOUDFLARE_USER_EMAIL="<YOUR_CLOUDFLARE_USER_EMAIL>"
 CLOUDFLARE_API_KEY="<YOUR_CLOUDFLARE_API_KEY>"
+TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"
 ```
 
 To configure these [Secrets](https://developers.cloudflare.com/workers/configuration/secrets/) for your Cloudflare Workers environment, use the following command:
@@ -49,6 +53,12 @@ To configure these [Secrets](https://developers.cloudflare.com/workers/configura
 ```
 npx wrangler secret put <KEY>
 ```
+
+## App Security
+
+We integrated [Turnstile](https://developers.cloudflare.com/turnstile/).
+
+> Replace the `sitekey` variable in the `script.js` file with your own [Sitekey](https://developers.cloudflare.com/turnstile/get-started/#get-a-sitekey-and-secret-key).
 
 ## Local Development & Testing
 

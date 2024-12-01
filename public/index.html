@@ -42,6 +42,9 @@
 
 		<!-- Stylesheets -->
 		<link rel="preload" href="/assets/styles.css" as="style" onload="this.rel='stylesheet'" />
+
+		<!-- Turnstile -->
+		<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onloadTurnstileCallback"></script>
 	</head>
 	<body>
 		<div class="container">
@@ -116,12 +119,15 @@
 					<input type="checkbox" id="skip_cloudflare" name="skip_cloudflare" />
 				</div>
 
+				<!-- Placeholder for the Turnstile widget -->
+				<div id="turnstile-container"></div>
+				<input type="hidden" id="turnstile-token" name="turnstile-token" />
+
 				<button type="submit">Submit Report</button>
 			</form>
 		</div>
 
 		<!-- Disclaimer Section -->
-
 		<footer>
 			<p>
 				<b>Disclaimer:</b> This platform is designed for the reporting and analysis of suspected phishing and malicious threats. It is
