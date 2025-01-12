@@ -125,6 +125,8 @@ Below is a non-exhaustive list of organizations where phishing threats and malic
 - [UK NCSC Report Phishing](https://www.ncsc.gov.uk/collection/phishing-scams/report-scam-email) *(UK)*
 - [UK NCSC Report Scam Websites](https://www.ncsc.gov.uk/section/about-this-website/report-scam-website) *(UK)*
 - [Internet Complaints (Germany)](https://www.internet-beschwerdestelle.de/en/complaint/submit/e-mail-and-spam.html) *(Germany)*
+- [IKT-Sicherheitsportal](https://www.onlinesicherheit.gv.at/Themen/Erste-Hilfe/Meldestellen.html) *(Austria)*
+- [Watchlist Internet](https://www.watchlist-internet.at/melde-formular/) *(Austria)*
 
 ---
 
