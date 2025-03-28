@@ -6,6 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 assets = { directory = "./public", binding = "ASSETS" }
 
 workers_dev = false
+preview_urls = false
 
 [[d1_databases]]
 binding = "DB"
