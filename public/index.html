@@ -11,8 +11,6 @@
 		<meta name="author" content="PRIVATE" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<meta charset="UTF-8" />
-
-		<!-- Open Graph / Social Media Meta Tags -->
 		<meta property="og:title" content="Phishing Submission Collector - Report & Analyze Malicious Threats" />
 		<meta
 			property="og:description"
@@ -44,8 +42,10 @@
 		<link rel="preload" href="/assets/styles.css" as="style" onload="this.rel='stylesheet'" />
 
 		<!-- Turnstile -->
-		<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onloadTurnstileCallback"></script>
+		<!-- <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onloadTurnstileCallback"></script> -->
+		<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" ></script>
 	</head>
+
 	<body>
 		<div class="container">
 			<div class="top-links">
@@ -63,6 +63,9 @@
 					rel="noopener noreferrer external"
 					>Report to Google</a
 				>
+				<a href="https://report.netcraft.com/report" class="top-link" target="_blank" rel="noopener noreferrer external"
+					>Report to Netcraft</a
+				>
 			</div>
 			<h1>Report Phishing Threat</h1>
 
@@ -71,7 +74,7 @@
 			<form id="phishingForm" method="POST">
 				<div class="form-group">
 					<label for="name">Name:</label>
-					<input type="text" id="name" name="name" required />
+					<input type="text" id="name" name="name" required placeholder="Your name or identifier" />
 				</div>
 
 				<div class="form-group">
@@ -80,6 +83,8 @@
 						<option value="">Select a category...</option>
 						<option value="Phishing">Phishing</option>
 						<option value="Crypto Scam">Crypto Scam</option>
+						<option value="Malware">Malware</option>
+						<option value="Spam">Spam</option>
 						<option value="Other">Other</option>
 					</select>
 				</div>
@@ -90,40 +95,58 @@
 						<option value="">Select a source...</option>
 						<option value="Email">Email</option>
 						<option value="SMS">SMS</option>
+						<option value="Social Media">Social Media</option>
+						<option value="Website">Website</option>
 						<option value="Other">Other</option>
 					</select>
 				</div>
 
 				<div class="form-group">
 					<label for="url">URL:</label>
-					<input type="url" id="url" name="url" required />
+					<input type="url" id="url" name="url" required placeholder="https://suspicious-website.com" pattern="https?://.*" />
 				</div>
 
 				<div class="form-group">
 					<label for="description">Description:</label>
-					<textarea id="description" name="description"></textarea>
+					<textarea id="description" name="description" placeholder="Provide additional context about the suspicious URL"></textarea>
 				</div>
 
-				<div class="form-group">
-					<label for="skip_urlscan">Skip URLScan API:</label>
-					<input type="checkbox" id="skip_urlscan" name="skip_urlscan" />
-				</div>
+				<div class="advanced-options">
+					<h3>Advanced API Options</h3>
+					<div class="form-group">
+						<label for="skip_urlscan">
+							<input type="checkbox" id="skip_urlscan" name="skip_urlscan" />
+							Skip URLScan API
+						</label>
+					</div>
 
-				<div class="form-group">
-					<label for="skip_virustotal">Skip VirusTotal API:</label>
-					<input type="checkbox" id="skip_virustotal" name="skip_virustotal" />
-				</div>
+					<div class="form-group">
+						<label for="skip_virustotal">
+							<input type="checkbox" id="skip_virustotal" name="skip_virustotal" />
+							Skip VirusTotal API
+						</label>
+					</div>
 
-				<div class="form-group">
-					<label for="skip_cloudflare">Skip Cloudflare URLScanner API:</label>
-					<input type="checkbox" id="skip_cloudflare" name="skip_cloudflare" />
+					<div class="form-group">
+						<label for="skip_ipqualityscore">
+							<input type="checkbox" id="skip_ipqualityscore" name="skip_ipqualityscore" checked />
+							Skip IPQS API
+						</label>
+					</div>
+
+					<div class="form-group">
+						<label for="skip_cloudflare">
+							<input type="checkbox" id="skip_cloudflare" name="skip_cloudflare" />
+							Skip Cloudflare URLScanner API
+						</label>
+					</div>
 				</div>
 
 				<!-- Placeholder for the Turnstile widget -->
 				<div id="turnstile-container"></div>
 				<input type="hidden" id="turnstile-token" name="turnstile-token" />
 
-				<button type="submit">Submit Report</button>
+				<button type="submit" id="submit-btn">Submit Report</button>
 			</form>
 		</div>
 

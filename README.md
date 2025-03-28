@@ -122,7 +122,7 @@ Below is a non-exhaustive list of organizations where phishing threats and malic
 - [eConsumer.gov](https://econsumer.gov/?lang=en-US) *(USA)*
 - [FTC Report Fraud](https://reportfraud.ftc.gov/) *(USA)*
 - [Europol Cybercrime Reporting](https://www.europol.europa.eu/report-a-crime/report-cybercrime-online) *(Europe)*
-- [UK NCSC Report Phishing](https://www.ncsc.gov.uk/collection/phishing-scams/report-scam-email) *(UK)*
+- [UK NCSC Report Phishing Scams](https://www.ncsc.gov.uk/collection/phishing-scams) *(UK)*
 - [UK NCSC Report Scam Websites](https://www.ncsc.gov.uk/section/about-this-website/report-scam-website) *(UK)*
 - [Internet Complaints (Germany)](https://www.internet-beschwerdestelle.de/en/complaint/submit/e-mail-and-spam.html) *(Germany)*
 - [IKT-Sicherheitsportal](https://www.onlinesicherheit.gv.at/Themen/Erste-Hilfe/Meldestellen.html) *(Austria)*
