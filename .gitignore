@@ -174,3 +174,4 @@ dist
 # macOS
 
 .DS_Store
+/.vscode
