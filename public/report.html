@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Phishing - Where to Report Malicious URLs</title>
+    <meta name="description" content="Find the right place to report phishing URLs and malicious websites. Resources for reporting cyber threats worldwide.">
+    <!-- Favicon and Icons -->
+    <link rel="icon" href="favicon.ico" type="image/x-icon" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2980b9;
+            --background-color: #f5f5f5;
+            --text-color: #2c3e50;
+            --card-bg: #ffffff;
+            --hover-bg: #f8f9fa;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            font-size: 16px;
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            padding: clamp(1rem, 2vw, 1.25rem);
+            font-size: clamp(1rem, 1vw + 0.75rem, 1.125rem);
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
+
+        .container {
+            max-width: min(90rem, 95vw);
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding: 2rem;
+            background-color: var(--card-bg);
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .steps-container {
+            background-color: var(--card-bg);
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .steps-container h2 {
+            color: var(--primary-color);
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .steps-list {
+            list-style: none;
+            counter-reset: steps;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .steps-list li {
+            position: relative;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            background: var(--card-bg);
+            border-radius: 10px;
+            counter-increment: steps;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid rgba(0,0,0,0.05);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .steps-list li:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .steps-list li {
+            padding-left: 4rem;
+        }
+
+        .steps-list li::before {
+            content: counter(steps);
+            position: absolute;
+            left: 1rem;
+            top: 1.5rem;
+            background: var(--primary-color);
+            color: white;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: transform 0.2s ease;
+        }
+
+        .steps-list li:hover::before {
+            transform: scale(1.1);
+        }
+
+        .steps-list .sub-steps {
+            list-style: none;
+            margin: 1rem 0 0 0;
+            padding: 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .steps-list .sub-steps li {
+            margin: 0;
+            padding: 1rem;
+            background: var(--background-color);
+            border-radius: 8px;
+            counter-increment: none;
+            display: flex;
+            align-items: center;
+            font-size: 0.95em;
+        }
+
+        .steps-list .sub-steps li::before {
+            display: none;
+        }
+
+        .steps-list .sub-steps li i {
+            margin-right: 0.5rem;
+            color: var(--primary-color);
+            font-size: 1.2em;
+        }
+
+        .steps-list strong {
+            color: var(--primary-color);
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+
+        .highlight-box {
+            background-color: #e8f5fe;
+            border: 1px solid rgba(52, 152, 219, 0.2);
+            padding: 1rem 1.2rem;
+            margin: 1rem 0;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .highlight-box::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background-color: var(--primary-color);
+        }
+
+        .highlight-box strong {
+            color: var(--primary-color);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .highlight-box strong::before {
+            content: '💡';
+            font-size: 1.2em;
+        }
+
+        .highlight-box a {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 600;
+            position: relative;
+        }
+
+        .highlight-box a:hover {
+            text-decoration: underline;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+        }
+
+        .quick-submit {
+            margin: 2rem 0;
+            text-align: center;
+        }
+
+        .submit-button {
+            display: inline-block;
+            padding: 1rem 2rem;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+
+        .submit-button:hover {
+            background-color: var(--secondary-color);
+        }
+
+        .categories {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .category {
+            background-color: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .category:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .category h2 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--primary-color);
+        }
+
+        .category-links {
+            list-style: none;
+        }
+
+        .category-links li {
+            margin-bottom: 1rem;
+        }
+
+        .category-links a {
+            color: var(--text-color);
+            text-decoration: none;
+            display: block;
+            padding: 0.8rem;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+            background-color: var(--background-color);
+        }
+
+        .category-links a:hover {
+            background-color: var(--hover-bg);
+            transform: translateX(5px);
+            color: var(--primary-color);
+        }
+
+        .flag {
+            font-size: 0.8em;
+            color: #666;
+            margin-left: 0.5rem;
+        }
+
+        .flag.star {
+            color: #f1c40f;
+        }
+
+        .category-links a {
+            position: relative;
+        }
+
+        .category-links a .tool-info {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--card-bg);
+            padding: 0.8em;
+            border-radius: 0.5rem;
+            box-shadow: 0 0.125rem 0.5rem rgba(0,0,0,0.15);
+            font-size: 0.9em;
+            width: max-content;
+            max-width: min(300px, 90vw);
+            z-index: 100;
+            transition: all 0.2s ease-in-out;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+
+        .category-links a .tool-info::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 0.5rem solid transparent;
+            border-top-color: var(--card-bg);
+        }
+
+        .category-links a:hover .tool-info {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(-50%) translateY(-0.5rem);
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding: 1rem;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        @media (max-width: 48em) { /* 768px */
+            .categories {
+                grid-template-columns: 1fr;
+            }
+
+            .category {
+                margin-bottom: 1rem;
+            }
+
+            .steps-list li {
+                padding-left: 3.5rem;
+            }
+
+            .steps-list .sub-steps {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 30em) { /* 480px */
+            html {
+                font-size: 16px; /* Increased base font size for better readability */
+            }
+
+            body {
+                padding: 0.75rem;
+            }
+
+            .steps-container, .category {
+                padding: 1.25rem;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+                line-height: 1.3;
+            }
+
+            h2 {
+                font-size: 1.25rem;
+            }
+
+            .steps-list li {
+                padding: 1.25rem 1rem 1.25rem 3.25rem;
+                margin-bottom: 1.25rem;
+            }
+
+            .steps-list li::before {
+                width: 2.5rem;
+                height: 2.5rem;
+                font-size: 1.25rem;
+                left: 0.5rem;
+            }
+
+            .category-links a {
+                padding: 1rem;
+                font-size: 1rem;
+                line-height: 1.4;
+            }
+
+            /* Improved tooltip for touch devices */
+            .category-links a .tool-info {
+                position: fixed;
+                bottom: 1rem;
+                left: 1rem;
+                right: 1rem;
+                transform: none;
+                max-width: none;
+                width: auto;
+                background: var(--card-bg);
+                box-shadow: 0 -0.25rem 1rem rgba(0,0,0,0.1);
+                padding: 1rem;
+                font-size: 1rem;
+                border-radius: 0.75rem;
+                z-index: 1000;
+            }
+
+            .category-links a:hover .tool-info {
+                transform: none;
+            }
+
+            /* Add tap highlight color for better touch feedback */
+            .category-links a {
+                -webkit-tap-highlight-color: rgba(52, 152, 219, 0.1);
+            }
+
+            /* Improved touch targets */
+            .category-links li {
+                margin-bottom: 0.75rem;
+            }
+
+            .sub-steps li {
+                padding: 1rem !important;
+            }
+
+            /* Better spacing for mobile */
+            .highlight-box {
+                padding: 1rem;
+                margin: 1rem -0.5rem;
+                border-radius: 0.75rem;
+            }
+
+            .footer {
+                margin-top: 2rem;
+                font-size: 0.95rem;
+                line-height: 1.5;
+            }
+        }
+
+        @media (min-width: 120em) { /* 1920px */
+            html {
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Report Phishing and Malicious URLs</h1>
+            <p>Help protect others by reporting suspicious websites, phishing attempts, and cyber threats.</p>
+        </header>
+
+        <div class="steps-container">
+            <h2>How to Report Malicious URLs</h2>
+            <ul class="steps-list">
+                <li>
+                    <strong>Start with Major Browsers</strong>
+                    <p>Always report suspicious URLs to Google Safe Browsing and Microsoft Security Intelligence first. These services help protect millions of users worldwide and can quickly block access to malicious sites.</p>
+                    <div class="highlight-box">
+                        <strong>Quick Action</strong>
+                        <p>Use the links in the <a href="#major-browsers" style="color: inherit; text-decoration: underline;">"Major Search Engines & Browsers"</a> section below to report immediately.</p>
+                    </div>
+                </li>
+                <li>
+                    <strong>Report to Infrastructure Providers</strong>
+                    <p>Report the malicious URL to the services hosting or providing access to it:</p>
+                    <ul class="sub-steps">
+                        <li><i>🏢</i>Website's Hosting Provider</li>
+                        <li><i>🌐</i>Domain's DNS Registrar</li>
+                        <li><i>🛡️</i>CDN/Proxy Services</li>
+                    </ul>
+                    <div class="highlight-box">
+                        <strong>How to Find Contacts</strong>
+                        <p>Use these tools to find the right abuse contacts:</p>
+                        <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                            <li><a href="https://phish.report/analysis" target="_blank" rel="noopener noreferrer external">phish.report</a> - Find hosting provider and domain registrar</li>
+                        </ul>
+                    </div>
+                </li>
+                <li>
+                    <strong>Use Security Services</strong>
+                    <p>Submit the URL to security services for analysis and broader protection:</p>
+                    <ul class="sub-steps">
+                        <li><i>🔍</i>URL Analysis (e.g., URLScan.io)</li>
+                        <li><i>🦠</i>Malware Scanning (e.g., VirusTotal)</li>
+                        <li><i>📊</i>Threat Intelligence</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Report to Authorities</strong>
+                    <p>For significant threats, report to your country's cybersecurity authorities.</p>
+                    <div class="highlight-box">
+                        <strong>Region-Specific Reporting</strong>
+                        <p>Scroll down to find the appropriate reporting channel for your region (US, EU, or other countries).</p>
+                    </div>
+                </li>
+            </ul>
+        </div>
+
+        <!-- <div class="quick-submit">
+            <a href="/" class="submit-button">Submit a Report Now</a>
+        </div> -->
+
+        <div class="categories">
+            <div id="major-browsers" class="category">
+                <h2>Major Search Engines & Browsers</h2>
+                <div class="highlight-box">
+                    <strong>Priority:</strong> Always start by reporting to these services first!
+                </div>
+                <ul class="category-links">
+                    <li><a href="https://safebrowsing.google.com/safebrowsing/report_phish/?hl=en" target="_blank" rel="noopener noreferrer external">Google Safe Browsing <span class="flag">⭐</span>
+                        <span class="tool-info">Primary reporting channel - helps protect Chrome users and Google Search results. Quick and effective.</span>
+                    </a></li>
+                    <li><a href="https://www.microsoft.com/en-us/wdsi/support/report-unsafe-site-guest" target="_blank" rel="noopener noreferrer external">Microsoft Security Intelligence <span class="flag">⭐</span>
+                        <span class="tool-info">Essential reporting channel - protects Edge users and Windows systems.</span>
+                    </a></li>
+                </ul>
+            </div>
+
+            <div class="category">
+                <h2>URL Analysis Tools</h2>
+                <ul class="category-links">
+                    <li><a href="https://radar.cloudflare.com/scan" target="_blank" rel="noopener noreferrer external">Cloudflare URL Scanner <span class="flag">⭐</span></a></li>
+                    <li><a href="https://urlscan.io/" target="_blank" rel="noopener noreferrer external">URLScan.io</a></li>
+                    <li><a href="https://www.ipqualityscore.com/threat-feeds/malicious-url-scanner" target="_blank" rel="noopener noreferrer external">IPQS URL Scanner</a></li>
+                    <li><a href="https://www.urlvoid.com/" target="_blank" rel="noopener noreferrer external">URLVoid</a></li>
+                    <li><a href="https://www.virustotal.com/" target="_blank" rel="noopener noreferrer external">VirusTotal</a></li>
+                </ul>
+            </div>
+
+            <div class="category">
+                <h2>Malware Analysis</h2>
+                <ul class="category-links">
+                    <li><a href="https://www.joesandbox.com/#windows" target="_blank" rel="noopener noreferrer external">Joe Sandbox</a></li>
+                    <li><a href="https://hybrid-analysis.com/" target="_blank" rel="noopener noreferrer external">Hybrid Analysis</a></li>
+                    <li><a href="https://app.any.run/" target="_blank" rel="noopener noreferrer external">ANY.RUN</a></li>
+                    <li><a href="https://polyswarm.network/" target="_blank" rel="noopener noreferrer external">Polyswarm</a></li>
+                    <li><a href="https://metadefender.opswat.com/" target="_blank" rel="noopener noreferrer external">OPSWAT MetaDefender</a></li>
+                </ul>
+            </div>
+
+            <div class="category">
+                <h2>Security Services</h2>
+                <ul class="category-links">
+                    <li><a href="https://submit.spamhaus.org/submit" target="_blank" rel="noopener noreferrer external">Spamhaus</a></li>
+                    <li><a href="https://report.netcraft.com/report" target="_blank" rel="noopener noreferrer external">Netcraft</a></li>
+                    <li><a href="https://www.barracudacentral.org/report" target="_blank" rel="noopener noreferrer external">Barracuda Central</a></li>
+                </ul>
+            </div>
+
+            <div class="category">
+                <h2>United States</h2>
+                <ul class="category-links">
+                    <li><a href="https://myservices.cisa.gov/irf" target="_blank" rel="noopener noreferrer external">CISA Incident Reporting <span class="flag">🇺🇸</span></a></li>
+                    <li><a href="https://econsumer.gov/?lang=en-US" target="_blank" rel="noopener noreferrer external">eConsumer.gov <span class="flag">🇺🇸</span></a></li>
+                    <li><a href="https://reportfraud.ftc.gov/" target="_blank" rel="noopener noreferrer external">FTC Report Fraud <span class="flag">🇺🇸</span></a></li>
+                </ul>
+            </div>
+
+            <div class="category">
+                <h2>European Union</h2>
+                <ul class="category-links">
+                    <li><a href="https://www.europol.europa.eu/report-a-crime/report-cybercrime-online" target="_blank" rel="noopener noreferrer external">Europol Cybercrime Reporting <span class="flag">🇪🇺</span></a></li>
+                    <li><a href="https://www.ncsc.gov.uk/collection/phishing-scams" target="_blank" rel="noopener noreferrer external">UK NCSC Phishing Guide <span class="flag">🇬🇧</span></a></li>
+                    <li><a href="https://www.ncsc.gov.uk/section/about-this-website/report-scam-website" target="_blank" rel="noopener noreferrer external">UK NCSC Report Scam Website <span class="flag">🇬🇧</span></a></li>
+                </ul>
+            </div>
+
+            <div class="category">
+                <h2>Central Europe</h2>
+                <ul class="category-links">
+                    <li><a href="https://www.internet-beschwerdestelle.de/en/complaint/submit/e-mail-and-spam.html" target="_blank" rel="noopener noreferrer external">Internet Complaints Germany <span class="flag">🇩🇪</span></a></li>
+                    <li><a href="https://www.onlinesicherheit.gv.at/Themen/Erste-Hilfe/Meldestellen.html" target="_blank" rel="noopener noreferrer external">IKT-Sicherheitsportal <span class="flag">🇦🇹</span></a></li>
+                    <li><a href="https://www.watchlist-internet.at/melde-formular/" target="_blank" rel="noopener noreferrer external">Watchlist Internet <span class="flag">🇦🇹</span></a></li>
+                    <li><a href="https://www.report.ncsc.admin.ch/en/" target="_blank" rel="noopener noreferrer external">Swiss National Cyber Security Centre (NCSC) <span class="flag">🇨🇭</span></a></li>
+                    <li><a href="https://www.antiphishing.ch/en/" target="_blank" rel="noopener noreferrer external">Swiss NCSC antiphishing.ch <span class="flag">🇨🇭</span></a></li>
+                </ul>
+            </div>
+        </div>
+
+        <footer>
+            <p>For immediate reporting of suspicious URLs and potential phishing threats, use our <a href="/">submission form</a>.</p>
+            <p>Stay safe online and help protect others by reporting suspicious activities.</p>
+        </footer>
+    </div>
+</body>
+</html>

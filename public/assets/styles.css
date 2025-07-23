@@ -17,9 +17,11 @@ body {
 	line-height: 1.6;
 	max-width: 800px;
 	margin: 0 auto;
-	padding: 20px;
+	padding: clamp(1rem, 5vw, 2rem);
 	background-color: var(--background-color);
 	color: var(--text-color);
+	font-size: clamp(1rem, 1vw + 0.75rem, 1.125rem);
+	-webkit-text-size-adjust: 100%;
 }
 
 .container {
@@ -236,26 +238,128 @@ footer {
 	}
 }
 
+.intro-text {
+	text-align: center;
+	margin-bottom: 2rem;
+	color: var(--text-color);
+	font-size: 1.0em;
+}
+
+.info-link {
+	color: var(--primary-color);
+	text-decoration: none;
+	font-weight: 500;
+	white-space: nowrap;
+	transition: all 0.2s ease;
+}
+
+.info-link:hover {
+	color: var(--secondary-color);
+	text-decoration: underline;
+}
+
+.info-link::after {
+	content: '→';
+	display: inline-block;
+	margin-left: 0.25em;
+	transition: transform 0.2s ease;
+}
+
+.info-link:hover::after {
+	transform: translateX(0.25em);
+}
+
 @media (max-width: 768px) {
 	body {
-		padding: 10px;
+		padding: clamp(0.75rem, 3vw, 1rem);
 		max-width: 100%;
+		font-size: 16px;
 	}
 
 	.container {
-		padding: 1rem;
+		padding: clamp(1rem, 4vw, 1.5rem);
+		border-radius: 8px;
 	}
 
 	.top-links {
 		flex-direction: column;
+		gap: 0.75rem;
 	}
 
 	.top-link {
 		flex: 1 1 100%;
-		margin-bottom: 10px;
+		padding: 0.875rem;
+		font-size: 0.95rem;
 	}
 
 	h1 {
-		font-size: 1.5rem;
+		font-size: clamp(1.5rem, 5vw, 1.8rem);
+		margin-bottom: 1rem;
+	}
+
+	.form-group {
+		margin-bottom: 1.25rem;
+	}
+
+	input[type='text'],
+	input[type='url'],
+	select,
+	textarea {
+		font-size: 1rem;
+		padding: 0.875rem;
+	}
+
+	.advanced-options {
+		padding: 1rem;
+		margin: 1.5rem -0.5rem;
+		border-radius: 6px;
+	}
+
+	button {
+		padding: 1rem;
+		font-size: 1.1rem;
+	}
+
+	footer {
+		font-size: 0.9rem;
+		padding: 1rem;
+		margin-top: 1.5rem;
+	}
+
+	/* Improve touch targets */
+	label {
+		padding: 0.25rem 0;
+	}
+
+	input[type="checkbox"] {
+		width: 1.25rem;
+		height: 1.25rem;
+		margin-right: 0.5rem;
+	}
+}
+
+/* Additional improvements for very small screens */
+@media (max-width: 480px) {
+	.container {
+		padding: 1rem;
+		margin: 0;
+		border-radius: 0;
+	}
+
+	body {
+		padding: 0;
+	}
+
+	.top-link {
+		padding: 1rem;
+	}
+
+	.advanced-options {
+		margin: 1rem -0.5rem;
+	}
+
+	.intro-text {
+		font-size: 1rem;
+		padding: 0 0.5rem;
 	}
 }
