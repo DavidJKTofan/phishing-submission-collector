@@ -55,6 +55,46 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
+        .quick-nav {
+            margin-top: 1.5rem;
+        }
+
+        .nav-link {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 2rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .highlight-text {
+            background-color: rgba(255, 255, 255, 0.2);
+            padding: 0.2em 0.4em;
+            border-radius: 4px;
+            margin: 0 0.2em;
+            font-weight: 600;
+            /* text-transform: uppercase; */
+            font-size: 0.9em;
+            letter-spacing: 0.05em;
+            transition: all 0.3s ease;
+        }
+
+        .nav-link:hover {
+            background-color: var(--secondary-color);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .nav-link:hover .highlight-text {
+            background-color: rgba(255, 255, 255, 0.3);
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+
         .steps-container {
             background-color: var(--card-bg);
             padding: 2rem;
@@ -441,6 +481,77 @@
             }
         }
 
+        .email-reporting-container {
+            background-color: var(--card-bg);
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 3rem 0;
+            border: 2px solid var(--primary-color);
+        }
+
+        .email-reporting-container h2 {
+            color: var(--primary-color);
+            text-align: center;
+            font-size: 1.8em;
+            margin-bottom: 1.5rem;
+        }
+
+        .highlight-box.special {
+            background-color: #f0f7ff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.15);
+        }
+
+        .quick-tips {
+            list-style: none;
+            margin: 1rem 0 0.5rem;
+            padding: 0;
+        }
+
+        .quick-tips li {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .email-categories {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .email-category {
+            background-color: var(--background-color);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .email-category h3 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--primary-color);
+            font-size: 1.2em;
+        }
+
+        @media (max-width: 48em) {
+            .email-categories {
+                grid-template-columns: 1fr;
+            }
+
+            .email-reporting-container {
+                margin: 2rem 0;
+                padding: 1.5rem;
+            }
+
+            .email-category {
+                padding: 1rem;
+            }
+        }
+
         @media (min-width: 120em) { /* 1920px */
             html {
                 font-size: 18px;
@@ -453,6 +564,9 @@
         <header>
             <h1>Report Phishing and Malicious URLs</h1>
             <p>Help protect others by reporting suspicious websites, phishing attempts, and cyber threats.</p>
+            <div class="quick-nav">
+                <a href="#email-reporting" class="nav-link">📧 Or for reporting Phishing <span class="highlight-text">Emails</span> click here</a>
+            </div>
         </header>
 
         <div class="steps-container">
@@ -578,8 +692,72 @@
                     <li><a href="https://www.onlinesicherheit.gv.at/Themen/Erste-Hilfe/Meldestellen.html" target="_blank" rel="noopener noreferrer external">IKT-Sicherheitsportal <span class="flag">🇦🇹</span></a></li>
                     <li><a href="https://www.watchlist-internet.at/melde-formular/" target="_blank" rel="noopener noreferrer external">Watchlist Internet <span class="flag">🇦🇹</span></a></li>
                     <li><a href="https://www.report.ncsc.admin.ch/en/" target="_blank" rel="noopener noreferrer external">Swiss National Cyber Security Centre (NCSC) <span class="flag">🇨🇭</span></a></li>
-                    <li><a href="https://www.antiphishing.ch/en/" target="_blank" rel="noopener noreferrer external">Swiss NCSC antiphishing.ch <span class="flag">🇨🇭</span></a></li>
                 </ul>
+            </div>
+        </div>
+
+        <div id="email-reporting" class="email-reporting-container">
+            <h2>📧 Report Phishing Emails</h2>
+            <div class="highlight-box special">
+                <strong>Quick Email Reporting Guide</strong>
+                <p>Most email providers have built-in reporting features. Look for:</p>
+                <ul class="quick-tips">
+                    <li>📨 "Report phishing" button in your email client</li>
+                    <li>🚫 "Mark as spam" with additional phishing report option</li>
+                    <li>⚠️ "Report suspicious email" in your security settings</li>
+                </ul>
+            </div>
+
+            <div class="email-categories">
+                <div class="email-category">
+                    <h3>Major Email Providers</h3>
+                    <ul class="category-links">
+                        <li><a href="https://support.google.com/mail/answer/8253?hl=en" target="_blank" rel="noopener noreferrer external">
+                            Gmail Phishing Report <span class="flag">⭐</span>
+                            <span class="tool-info">Report phishing directly in Gmail</span>
+                        </a></li>
+                        <li><a href="https://support.microsoft.com/en-us/windows/protect-yourself-from-phishing-0c7ea947-ba98-3bd9-7184-430e1f860a44" target="_blank" rel="noopener noreferrer external">
+                            Microsoft Email Safety <span class="flag">⭐</span>
+                            <span class="tool-info">Report in Outlook</span>
+                        </a></li>
+                    </ul>
+                </div>
+
+                <div class="email-category">
+                    <h3>Government & Official Channels</h3>
+                    <ul class="category-links">
+                        <li><a href="https://www.ncsc.gov.uk/collection/phishing-scams/report-scam-email" target="_blank" rel="noopener noreferrer external">
+                            UK NCSC Email Reporting <span class="flag">🇬🇧</span>
+                            <span class="tool-info">Forward suspicious emails to report@phishing.gov.uk</span>
+                        </a></li>
+                        <li><a href="https://www.ic3.gov/" target="_blank" rel="noopener noreferrer external">
+                            FBI IC3 <span class="flag">🇺🇸</span>
+                            <span class="tool-info">Report cybercrime including phishing to the FBI's Internet Crime Complaint Center</span>
+                        </a></li>
+                        <li><a href="https://www.cisa.gov/report" target="_blank" rel="noopener noreferrer external">
+                            CISA Reporting <span class="flag">🇺🇸</span>
+                            <span class="tool-info">Report cyber incidents to US Cybersecurity & Infrastructure Security Agency</span>
+                        </a></li>
+                        <li><a href="https://www.csa.gov.sg/resources/singcert/report-a-phishing-email" target="_blank" rel="noopener noreferrer external">
+                            SingCERT <span class="flag">🇸🇬</span>
+                            <span class="tool-info">Report phishing emails to Singapore's Computer Emergency Response Team</span>
+                        </a></li>
+                        <li><a href="https://www.antiphishing.ch/en/" target="_blank" rel="noopener noreferrer external">
+                            Swiss Anti-Phishing <span class="flag">🇨🇭</span>
+                            <span class="tool-info">Report phishing emails to Switzerland's dedicated anti-phishing service</span>
+                        </a></li>
+                    </ul>
+                </div>
+
+                <div class="email-category">
+                    <h3>Additional Resources</h3>
+                    <ul class="category-links">
+                        <li><a href="https://www.antiphishing.org/report-phishing/" target="_blank" rel="noopener noreferrer external">
+                            APWG Reporting
+                            <span class="tool-info">Anti-Phishing Working Group's global reporting system</span>
+                        </a></li>
+                    </ul>
+                </div>
             </div>
         </div>
 
