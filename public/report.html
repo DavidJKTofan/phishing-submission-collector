@@ -1,770 +1,1237 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Report Phishing - Where to Report Malicious URLs</title>
-    <meta name="description" content="Find the right place to report phishing URLs and malicious websites. Resources for reporting cyber threats worldwide.">
-    <!-- Favicon and Icons -->
-    <link rel="icon" href="favicon.ico" type="image/x-icon" />
-    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-    <style>
-        :root {
-            --primary-color: #3498db;
-            --secondary-color: #2980b9;
-            --background-color: #f5f5f5;
-            --text-color: #2c3e50;
-            --card-bg: #ffffff;
-            --hover-bg: #f8f9fa;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        html {
-            font-size: 16px;
-            scroll-behavior: smooth;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-            line-height: 1.6;
-            background-color: var(--background-color);
-            color: var(--text-color);
-            padding: clamp(1rem, 2vw, 1.25rem);
-            font-size: clamp(1rem, 1vw + 0.75rem, 1.125rem);
-            -webkit-text-size-adjust: 100%;
-            text-size-adjust: 100%;
-        }
-
-        .container {
-            max-width: min(90rem, 95vw);
-            margin: 0 auto;
-            width: 100%;
-        }
-
-        header {
-            text-align: center;
-            margin-bottom: 2rem;
-            padding: 2rem;
-            background-color: var(--card-bg);
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .quick-nav {
-            margin-top: 1.5rem;
-        }
-
-        .nav-link {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.75rem 1.5rem;
-            background-color: var(--primary-color);
-            color: white;
-            text-decoration: none;
-            border-radius: 2rem;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .highlight-text {
-            background-color: rgba(255, 255, 255, 0.2);
-            padding: 0.2em 0.4em;
-            border-radius: 4px;
-            margin: 0 0.2em;
-            font-weight: 600;
-            /* text-transform: uppercase; */
-            font-size: 0.9em;
-            letter-spacing: 0.05em;
-            transition: all 0.3s ease;
-        }
-
-        .nav-link:hover {
-            background-color: var(--secondary-color);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-        }
-
-        .nav-link:hover .highlight-text {
-            background-color: rgba(255, 255, 255, 0.3);
-            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
-        }
-
-        .steps-container {
-            background-color: var(--card-bg);
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
-        }
-
-        .steps-container h2 {
-            color: var(--primary-color);
-            margin-bottom: 1.5rem;
-            text-align: center;
-        }
-
-        .steps-list {
-            list-style: none;
-            counter-reset: steps;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-
-        .steps-list li {
-            position: relative;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            background: var(--card-bg);
-            border-radius: 10px;
-            counter-increment: steps;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            border: 1px solid rgba(0,0,0,0.05);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .steps-list li:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-
-        .steps-list li {
-            padding-left: 4rem;
-        }
-
-        .steps-list li::before {
-            content: counter(steps);
-            position: absolute;
-            left: 1rem;
-            top: 1.5rem;
-            background: var(--primary-color);
-            color: white;
-            width: 2rem;
-            height: 2rem;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.2em;
-            font-weight: bold;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            transition: transform 0.2s ease;
-        }
-
-        .steps-list li:hover::before {
-            transform: scale(1.1);
-        }
-
-        .steps-list .sub-steps {
-            list-style: none;
-            margin: 1rem 0 0 0;
-            padding: 0;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-        }
-
-        .steps-list .sub-steps li {
-            margin: 0;
-            padding: 1rem;
-            background: var(--background-color);
-            border-radius: 8px;
-            counter-increment: none;
-            display: flex;
-            align-items: center;
-            font-size: 0.95em;
-        }
-
-        .steps-list .sub-steps li::before {
-            display: none;
-        }
-
-        .steps-list .sub-steps li i {
-            margin-right: 0.5rem;
-            color: var(--primary-color);
-            font-size: 1.2em;
-        }
-
-        .steps-list strong {
-            color: var(--primary-color);
-            display: block;
-            margin-bottom: 0.5rem;
-            font-size: 1.2em;
-            font-weight: 600;
-        }
-
-        .highlight-box {
-            background-color: #e8f5fe;
-            border: 1px solid rgba(52, 152, 219, 0.2);
-            padding: 1rem 1.2rem;
-            margin: 1rem 0;
-            border-radius: 8px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .highlight-box::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 4px;
-            background-color: var(--primary-color);
-        }
-
-        .highlight-box strong {
-            color: var(--primary-color);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .highlight-box strong::before {
-            content: '💡';
-            font-size: 1.2em;
-        }
-
-        .highlight-box a {
-            color: var(--primary-color);
-            text-decoration: none;
-            font-weight: 600;
-            position: relative;
-        }
-
-        .highlight-box a:hover {
-            text-decoration: underline;
-        }
-
-        h1 {
-            color: var(--primary-color);
-            margin-bottom: 1rem;
-        }
-
-        .quick-submit {
-            margin: 2rem 0;
-            text-align: center;
-        }
-
-        .submit-button {
-            display: inline-block;
-            padding: 1rem 2rem;
-            background-color: var(--primary-color);
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-            transition: background-color 0.3s ease;
-        }
-
-        .submit-button:hover {
-            background-color: var(--secondary-color);
-        }
-
-        .categories {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-
-        .category {
-            background-color: var(--card-bg);
-            padding: 1.5rem;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .category:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-        }
-
-        .category h2 {
-            color: var(--primary-color);
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 2px solid var(--primary-color);
-        }
-
-        .category-links {
-            list-style: none;
-        }
-
-        .category-links li {
-            margin-bottom: 1rem;
-        }
-
-        .category-links a {
-            color: var(--text-color);
-            text-decoration: none;
-            display: block;
-            padding: 0.8rem;
-            border-radius: 5px;
-            transition: all 0.3s ease;
-            background-color: var(--background-color);
-        }
-
-        .category-links a:hover {
-            background-color: var(--hover-bg);
-            transform: translateX(5px);
-            color: var(--primary-color);
-        }
-
-        .flag {
-            font-size: 0.8em;
-            color: #666;
-            margin-left: 0.5rem;
-        }
-
-        .flag.star {
-            color: #f1c40f;
-        }
-
-        .category-links a {
-            position: relative;
-        }
-
-        .category-links a .tool-info {
-            visibility: hidden;
-            opacity: 0;
-            position: absolute;
-            bottom: 125%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--card-bg);
-            padding: 0.8em;
-            border-radius: 0.5rem;
-            box-shadow: 0 0.125rem 0.5rem rgba(0,0,0,0.15);
-            font-size: 0.9em;
-            width: max-content;
-            max-width: min(300px, 90vw);
-            z-index: 100;
-            transition: all 0.2s ease-in-out;
-            border: 1px solid rgba(0,0,0,0.1);
-        }
-
-        .category-links a .tool-info::after {
-            content: '';
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            border: 0.5rem solid transparent;
-            border-top-color: var(--card-bg);
-        }
-
-        .category-links a:hover .tool-info {
-            visibility: visible;
-            opacity: 1;
-            transform: translateX(-50%) translateY(-0.5rem);
-        }
-
-        footer {
-            text-align: center;
-            margin-top: 3rem;
-            padding: 1rem;
-            font-size: 0.9rem;
-            color: #666;
-        }
-
-        @media (max-width: 48em) { /* 768px */
-            .categories {
-                grid-template-columns: 1fr;
-            }
-
-            .category {
-                margin-bottom: 1rem;
-            }
-
-            .steps-list li {
-                padding-left: 3.5rem;
-            }
-
-            .steps-list .sub-steps {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (max-width: 30em) { /* 480px */
-            html {
-                font-size: 16px; /* Increased base font size for better readability */
-            }
-
-            body {
-                padding: 0.75rem;
-            }
-
-            .steps-container, .category {
-                padding: 1.25rem;
-            }
-
-            h1 {
-                font-size: 1.5rem;
-                line-height: 1.3;
-            }
-
-            h2 {
-                font-size: 1.25rem;
-            }
-
-            .steps-list li {
-                padding: 1.25rem 1rem 1.25rem 3.25rem;
-                margin-bottom: 1.25rem;
-            }
-
-            .steps-list li::before {
-                width: 2.5rem;
-                height: 2.5rem;
-                font-size: 1.25rem;
-                left: 0.5rem;
-            }
-
-            .category-links a {
-                padding: 1rem;
-                font-size: 1rem;
-                line-height: 1.4;
-            }
-
-            /* Improved tooltip for touch devices */
-            .category-links a .tool-info {
-                position: fixed;
-                bottom: 1rem;
-                left: 1rem;
-                right: 1rem;
-                transform: none;
-                max-width: none;
-                width: auto;
-                background: var(--card-bg);
-                box-shadow: 0 -0.25rem 1rem rgba(0,0,0,0.1);
-                padding: 1rem;
-                font-size: 1rem;
-                border-radius: 0.75rem;
-                z-index: 1000;
-            }
-
-            .category-links a:hover .tool-info {
-                transform: none;
-            }
-
-            /* Add tap highlight color for better touch feedback */
-            .category-links a {
-                -webkit-tap-highlight-color: rgba(52, 152, 219, 0.1);
-            }
-
-            /* Improved touch targets */
-            .category-links li {
-                margin-bottom: 0.75rem;
-            }
-
-            .sub-steps li {
-                padding: 1rem !important;
-            }
-
-            /* Better spacing for mobile */
-            .highlight-box {
-                padding: 1rem;
-                margin: 1rem -0.5rem;
-                border-radius: 0.75rem;
-            }
-
-            .footer {
-                margin-top: 2rem;
-                font-size: 0.95rem;
-                line-height: 1.5;
-            }
-        }
-
-        .email-reporting-container {
-            background-color: var(--card-bg);
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin: 3rem 0;
-            border: 2px solid var(--primary-color);
-        }
-
-        .email-reporting-container h2 {
-            color: var(--primary-color);
-            text-align: center;
-            font-size: 1.8em;
-            margin-bottom: 1.5rem;
-        }
-
-        .highlight-box.special {
-            background-color: #f0f7ff;
-            border: none;
-            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.15);
-        }
-
-        .quick-tips {
-            list-style: none;
-            margin: 1rem 0 0.5rem;
-            padding: 0;
-        }
-
-        .quick-tips li {
-            margin: 0.5rem 0;
-            padding-left: 1.5rem;
-            position: relative;
-        }
-
-        .email-categories {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-
-        .email-category {
-            background-color: var(--background-color);
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-
-        .email-category h3 {
-            color: var(--primary-color);
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 2px solid var(--primary-color);
-            font-size: 1.2em;
-        }
-
-        @media (max-width: 48em) {
-            .email-categories {
-                grid-template-columns: 1fr;
-            }
-
-            .email-reporting-container {
-                margin: 2rem 0;
-                padding: 1.5rem;
-            }
-
-            .email-category {
-                padding: 1rem;
-            }
-        }
-
-        @media (min-width: 120em) { /* 1920px */
-            html {
-                font-size: 18px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>Report Phishing and Malicious URLs</h1>
-            <p>Help protect others by reporting suspicious websites, phishing attempts, and cyber threats.</p>
-            <div class="quick-nav">
-                <a href="#email-reporting" class="nav-link">📧 Or for reporting Phishing <span class="highlight-text">Emails</span> click here</a>
-            </div>
-        </header>
-
-        <div class="steps-container">
-            <h2>How to Report Malicious URLs</h2>
-            <ul class="steps-list">
-                <li>
-                    <strong>Start with Major Browsers</strong>
-                    <p>Always report suspicious URLs to Google Safe Browsing and Microsoft Security Intelligence first. These services help protect millions of users worldwide and can quickly block access to malicious sites.</p>
-                    <div class="highlight-box">
-                        <strong>Quick Action</strong>
-                        <p>Use the links in the <a href="#major-browsers" style="color: inherit; text-decoration: underline;">"Major Search Engines & Browsers"</a> section below to report immediately.</p>
-                    </div>
-                </li>
-                <li>
-                    <strong>Report to Infrastructure Providers</strong>
-                    <p>Report the malicious URL to the services hosting or providing access to it:</p>
-                    <ul class="sub-steps">
-                        <li><i>🏢</i>Website's Hosting Provider</li>
-                        <li><i>🌐</i>Domain's DNS Registrar</li>
-                        <li><i>🛡️</i>CDN/Proxy Services</li>
-                    </ul>
-                    <div class="highlight-box">
-                        <strong>How to Find Contacts</strong>
-                        <p>Use these tools to find the right abuse contacts:</p>
-                        <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
-                            <li><a href="https://phish.report/analysis" target="_blank" rel="noopener noreferrer external">phish.report</a> - Find hosting provider and domain registrar</li>
-                        </ul>
-                    </div>
-                </li>
-                <li>
-                    <strong>Use Security Services</strong>
-                    <p>Submit the URL to security services for analysis and broader protection:</p>
-                    <ul class="sub-steps">
-                        <li><i>🔍</i>URL Analysis (e.g., URLScan.io)</li>
-                        <li><i>🦠</i>Malware Scanning (e.g., VirusTotal)</li>
-                        <li><i>📊</i>Threat Intelligence</li>
-                    </ul>
-                </li>
-                <li>
-                    <strong>Report to Authorities</strong>
-                    <p>For significant threats, report to your country's cybersecurity authorities.</p>
-                    <div class="highlight-box">
-                        <strong>Region-Specific Reporting</strong>
-                        <p>Scroll down to find the appropriate reporting channel for your region (US, EU, or other countries).</p>
-                    </div>
-                </li>
-            </ul>
-        </div>
-
-        <!-- <div class="quick-submit">
-            <a href="/" class="submit-button">Submit a Report Now</a>
-        </div> -->
-
-        <div class="categories">
-            <div id="major-browsers" class="category">
-                <h2>Major Search Engines & Browsers</h2>
-                <div class="highlight-box">
-                    <strong>Priority:</strong> Always start by reporting to these services first!
-                </div>
-                <ul class="category-links">
-                    <li><a href="https://safebrowsing.google.com/safebrowsing/report_phish/?hl=en" target="_blank" rel="noopener noreferrer external">Google Safe Browsing <span class="flag">⭐</span>
-                        <span class="tool-info">Primary reporting channel - helps protect Chrome users and Google Search results. Quick and effective.</span>
-                    </a></li>
-                    <li><a href="https://www.microsoft.com/en-us/wdsi/support/report-unsafe-site-guest" target="_blank" rel="noopener noreferrer external">Microsoft Security Intelligence <span class="flag">⭐</span>
-                        <span class="tool-info">Essential reporting channel - protects Edge users and Windows systems.</span>
-                    </a></li>
-                </ul>
-            </div>
-
-            <div class="category">
-                <h2>URL Analysis Tools</h2>
-                <ul class="category-links">
-                    <li><a href="https://radar.cloudflare.com/scan" target="_blank" rel="noopener noreferrer external">Cloudflare URL Scanner <span class="flag">⭐</span></a></li>
-                    <li><a href="https://urlscan.io/" target="_blank" rel="noopener noreferrer external">URLScan.io</a></li>
-                    <li><a href="https://www.ipqualityscore.com/threat-feeds/malicious-url-scanner" target="_blank" rel="noopener noreferrer external">IPQS URL Scanner</a></li>
-                    <li><a href="https://www.urlvoid.com/" target="_blank" rel="noopener noreferrer external">URLVoid</a></li>
-                    <li><a href="https://www.virustotal.com/" target="_blank" rel="noopener noreferrer external">VirusTotal</a></li>
-                </ul>
-            </div>
-
-            <div class="category">
-                <h2>Malware Analysis</h2>
-                <ul class="category-links">
-                    <li><a href="https://www.joesandbox.com/#windows" target="_blank" rel="noopener noreferrer external">Joe Sandbox</a></li>
-                    <li><a href="https://hybrid-analysis.com/" target="_blank" rel="noopener noreferrer external">Hybrid Analysis</a></li>
-                    <li><a href="https://app.any.run/" target="_blank" rel="noopener noreferrer external">ANY.RUN</a></li>
-                    <li><a href="https://polyswarm.network/" target="_blank" rel="noopener noreferrer external">Polyswarm</a></li>
-                    <li><a href="https://metadefender.opswat.com/" target="_blank" rel="noopener noreferrer external">OPSWAT MetaDefender</a></li>
-                </ul>
-            </div>
-
-            <div class="category">
-                <h2>Security Services</h2>
-                <ul class="category-links">
-                    <li><a href="https://submit.spamhaus.org/submit" target="_blank" rel="noopener noreferrer external">Spamhaus</a></li>
-                    <li><a href="https://report.netcraft.com/report" target="_blank" rel="noopener noreferrer external">Netcraft</a></li>
-                    <li><a href="https://www.barracudacentral.org/report" target="_blank" rel="noopener noreferrer external">Barracuda Central</a></li>
-                </ul>
-            </div>
-
-            <div class="category">
-                <h2>United States</h2>
-                <ul class="category-links">
-                    <li><a href="https://myservices.cisa.gov/irf" target="_blank" rel="noopener noreferrer external">CISA Incident Reporting <span class="flag">🇺🇸</span></a></li>
-                    <li><a href="https://econsumer.gov/?lang=en-US" target="_blank" rel="noopener noreferrer external">eConsumer.gov <span class="flag">🇺🇸</span></a></li>
-                    <li><a href="https://reportfraud.ftc.gov/" target="_blank" rel="noopener noreferrer external">FTC Report Fraud <span class="flag">🇺🇸</span></a></li>
-                </ul>
-            </div>
-
-            <div class="category">
-                <h2>European Union</h2>
-                <ul class="category-links">
-                    <li><a href="https://www.europol.europa.eu/report-a-crime/report-cybercrime-online" target="_blank" rel="noopener noreferrer external">Europol Cybercrime Reporting <span class="flag">🇪🇺</span></a></li>
-                    <li><a href="https://www.ncsc.gov.uk/collection/phishing-scams" target="_blank" rel="noopener noreferrer external">UK NCSC Phishing Guide <span class="flag">🇬🇧</span></a></li>
-                    <li><a href="https://www.ncsc.gov.uk/section/about-this-website/report-scam-website" target="_blank" rel="noopener noreferrer external">UK NCSC Report Scam Website <span class="flag">🇬🇧</span></a></li>
-                </ul>
-            </div>
-
-            <div class="category">
-                <h2>Central Europe</h2>
-                <ul class="category-links">
-                    <li><a href="https://www.internet-beschwerdestelle.de/en/complaint/submit/e-mail-and-spam.html" target="_blank" rel="noopener noreferrer external">Internet Complaints Germany <span class="flag">🇩🇪</span></a></li>
-                    <li><a href="https://www.onlinesicherheit.gv.at/Themen/Erste-Hilfe/Meldestellen.html" target="_blank" rel="noopener noreferrer external">IKT-Sicherheitsportal <span class="flag">🇦🇹</span></a></li>
-                    <li><a href="https://www.watchlist-internet.at/melde-formular/" target="_blank" rel="noopener noreferrer external">Watchlist Internet <span class="flag">🇦🇹</span></a></li>
-                    <li><a href="https://www.report.ncsc.admin.ch/en/" target="_blank" rel="noopener noreferrer external">Swiss National Cyber Security Centre (NCSC) <span class="flag">🇨🇭</span></a></li>
-                </ul>
-            </div>
-        </div>
-
-        <div id="email-reporting" class="email-reporting-container">
-            <h2>📧 Report Phishing Emails</h2>
-            <div class="highlight-box special">
-                <strong>Quick Email Reporting Guide</strong>
-                <p>Most email providers have built-in reporting features. Look for:</p>
-                <ul class="quick-tips">
-                    <li>📨 "Report phishing" button in your email client</li>
-                    <li>🚫 "Mark as spam" with additional phishing report option</li>
-                    <li>⚠️ "Report suspicious email" in your security settings</li>
-                </ul>
-            </div>
-
-            <div class="email-categories">
-                <div class="email-category">
-                    <h3>Major Email Providers</h3>
-                    <ul class="category-links">
-                        <li><a href="https://support.google.com/mail/answer/8253?hl=en" target="_blank" rel="noopener noreferrer external">
-                            Gmail Phishing Report <span class="flag">⭐</span>
-                            <span class="tool-info">Report phishing directly in Gmail</span>
-                        </a></li>
-                        <li><a href="https://support.microsoft.com/en-us/windows/protect-yourself-from-phishing-0c7ea947-ba98-3bd9-7184-430e1f860a44" target="_blank" rel="noopener noreferrer external">
-                            Microsoft Email Safety <span class="flag">⭐</span>
-                            <span class="tool-info">Report in Outlook</span>
-                        </a></li>
-                    </ul>
-                </div>
-
-                <div class="email-category">
-                    <h3>Government & Official Channels</h3>
-                    <ul class="category-links">
-                        <li><a href="https://www.ncsc.gov.uk/collection/phishing-scams/report-scam-email" target="_blank" rel="noopener noreferrer external">
-                            UK NCSC Email Reporting <span class="flag">🇬🇧</span>
-                            <span class="tool-info">Forward suspicious emails to report@phishing.gov.uk</span>
-                        </a></li>
-                        <li><a href="https://www.ic3.gov/" target="_blank" rel="noopener noreferrer external">
-                            FBI IC3 <span class="flag">🇺🇸</span>
-                            <span class="tool-info">Report cybercrime including phishing to the FBI's Internet Crime Complaint Center</span>
-                        </a></li>
-                        <li><a href="https://www.cisa.gov/report" target="_blank" rel="noopener noreferrer external">
-                            CISA Reporting <span class="flag">🇺🇸</span>
-                            <span class="tool-info">Report cyber incidents to US Cybersecurity & Infrastructure Security Agency</span>
-                        </a></li>
-                        <li><a href="https://www.csa.gov.sg/resources/singcert/report-a-phishing-email" target="_blank" rel="noopener noreferrer external">
-                            SingCERT <span class="flag">🇸🇬</span>
-                            <span class="tool-info">Report phishing emails to Singapore's Computer Emergency Response Team</span>
-                        </a></li>
-                        <li><a href="https://www.antiphishing.ch/en/" target="_blank" rel="noopener noreferrer external">
-                            Swiss Anti-Phishing <span class="flag">🇨🇭</span>
-                            <span class="tool-info">Report phishing emails to Switzerland's dedicated anti-phishing service</span>
-                        </a></li>
-                    </ul>
-                </div>
-
-                <div class="email-category">
-                    <h3>Additional Resources</h3>
-                    <ul class="category-links">
-                        <li><a href="https://www.antiphishing.org/report-phishing/" target="_blank" rel="noopener noreferrer external">
-                            APWG Reporting
-                            <span class="tool-info">Anti-Phishing Working Group's global reporting system</span>
-                        </a></li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        <footer>
-            <p>For immediate reporting of suspicious URLs and potential phishing threats, use our <a href="/">submission form</a>.</p>
-            <p>Stay safe online and help protect others by reporting suspicious activities.</p>
-        </footer>
-    </div>
-</body>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Report Phishing - Where to Report Malicious URLs</title>
+		<meta
+			name="description"
+			content="Find the right place to report phishing URLs and malicious websites. Resources for reporting cyber threats worldwide."
+		/>
+		<link rel="icon" href="favicon.ico" type="image/x-icon" />
+		<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+		<style>
+			:root {
+				--primary: #2563eb;
+				--primary-dark: #1e40af;
+				--primary-light: #3b82f6;
+				--secondary: #06b6d4;
+				--accent: #8b5cf6;
+				--bg-primary: #ffffff;
+				--bg-secondary: #f8fafc;
+				--bg-tertiary: #f1f5f9;
+				--text-primary: #0f172a;
+				--text-secondary: #475569;
+				--text-muted: #64748b;
+				--border: #e2e8f0;
+				--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+				--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+				--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+				--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+				--radius-sm: 0.5rem;
+				--radius-md: 0.75rem;
+				--radius-lg: 1rem;
+				--gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+				--gradient-hero: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
+			}
+
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+
+			html {
+				font-size: 16px;
+				scroll-behavior: smooth;
+				scroll-padding-top: 2rem;
+			}
+
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+				line-height: 1.6;
+				background: var(--bg-secondary);
+				color: var(--text-primary);
+				-webkit-font-smoothing: antialiased;
+				-moz-osx-font-smoothing: grayscale;
+			}
+
+			.container {
+				max-width: 1280px;
+				margin: 0 auto;
+				padding: 0 1.5rem;
+			}
+
+			/* Hero Header */
+			header {
+				background: var(--gradient-hero);
+				color: white;
+				padding: 4rem 0 3rem;
+				margin-bottom: 3rem;
+				position: relative;
+				overflow: hidden;
+			}
+
+			header::before {
+				content: '';
+				position: absolute;
+				top: 0;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+				opacity: 0.4;
+			}
+
+			header .container {
+				position: relative;
+				z-index: 1;
+			}
+
+			h1 {
+				font-size: clamp(2rem, 5vw, 3rem);
+				font-weight: 800;
+				margin-bottom: 1rem;
+				line-height: 1.2;
+				letter-spacing: -0.025em;
+			}
+
+			header p {
+				font-size: clamp(1.125rem, 2vw, 1.25rem);
+				opacity: 0.95;
+				max-width: 700px;
+				margin: 0 auto;
+			}
+
+			.hero-cta {
+				margin-top: 2rem;
+				display: flex;
+				flex-wrap: wrap;
+				gap: 1rem;
+				justify-content: center;
+				align-items: center;
+			}
+
+			.btn {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.5rem;
+				padding: 0.875rem 1.75rem;
+				font-size: 1rem;
+				font-weight: 600;
+				text-decoration: none;
+				border-radius: var(--radius-md);
+				transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+				border: none;
+				cursor: pointer;
+				white-space: nowrap;
+			}
+
+			.btn-primary {
+				background: white;
+				color: var(--primary);
+				box-shadow: var(--shadow-md);
+			}
+
+			.btn-primary:hover {
+				transform: translateY(-2px);
+				box-shadow: var(--shadow-lg);
+			}
+
+			.btn-secondary {
+				background: rgba(255, 255, 255, 0.2);
+				color: white;
+				border: 2px solid rgba(255, 255, 255, 0.3);
+				backdrop-filter: blur(10px);
+			}
+
+			.btn-secondary:hover {
+				background: rgba(255, 255, 255, 0.3);
+				border-color: rgba(255, 255, 255, 0.5);
+			}
+
+			/* Quick Start Guide */
+			.quick-start {
+				background: var(--bg-primary);
+				border-radius: var(--radius-lg);
+				padding: 2.5rem;
+				margin-bottom: 3rem;
+				box-shadow: var(--shadow-md);
+				border: 1px solid var(--border);
+			}
+
+			.quick-start h2 {
+				color: var(--primary);
+				font-size: 1.875rem;
+				font-weight: 700;
+				margin-bottom: 2rem;
+				text-align: center;
+			}
+
+			.steps {
+				display: grid;
+				gap: 1.5rem;
+				max-width: 900px;
+				margin: 0 auto;
+			}
+
+			.step {
+				background: var(--bg-tertiary);
+				padding: 1.75rem;
+				border-radius: var(--radius-md);
+				border-left: 4px solid var(--primary);
+				transition: all 0.2s ease;
+				position: relative;
+			}
+
+			.step:hover {
+				transform: translateX(4px);
+				box-shadow: var(--shadow-md);
+			}
+
+			.step-number {
+				position: absolute;
+				left: -0.75rem;
+				top: 1.75rem;
+				width: 2.5rem;
+				height: 2.5rem;
+				background: var(--primary);
+				color: white;
+				border-radius: 50%;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-weight: 700;
+				font-size: 1.125rem;
+				box-shadow: var(--shadow-md);
+			}
+
+			.step-content {
+				padding-left: 2.5rem;
+			}
+
+			.step h3 {
+				color: var(--text-primary);
+				font-size: 1.25rem;
+				font-weight: 600;
+				margin-bottom: 0.75rem;
+			}
+
+			.step p {
+				color: var(--text-secondary);
+				margin-bottom: 1rem;
+			}
+
+			.sub-items {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+				gap: 0.75rem;
+				margin-top: 1rem;
+			}
+
+			.sub-item {
+				background: white;
+				padding: 0.75rem 1rem;
+				border-radius: var(--radius-sm);
+				font-size: 0.9375rem;
+				display: flex;
+				align-items: center;
+				gap: 0.5rem;
+				border: 1px solid var(--border);
+			}
+
+			.info-box {
+				background: #eff6ff;
+				border: 1px solid #bfdbfe;
+				border-left: 4px solid var(--primary);
+				padding: 1.25rem;
+				border-radius: var(--radius-sm);
+				margin-top: 1rem;
+			}
+
+			.info-box-title {
+				display: flex;
+				align-items: center;
+				gap: 0.5rem;
+				font-weight: 600;
+				color: var(--primary);
+				margin-bottom: 0.5rem;
+			}
+
+			.info-box p,
+			.info-box ul {
+				color: var(--text-secondary);
+				font-size: 0.9375rem;
+			}
+
+			.info-box ul {
+				margin: 0.5rem 0 0 1.5rem;
+			}
+
+			.info-box a {
+				color: var(--primary);
+				font-weight: 600;
+				text-decoration: none;
+				border-bottom: 1px solid transparent;
+				transition: border-color 0.2s;
+			}
+
+			.info-box a:hover {
+				border-bottom-color: var(--primary);
+			}
+
+			/* Section Headers */
+			.section-header {
+				text-align: center;
+				margin: 4rem 0 2.5rem;
+			}
+
+			.section-header h2 {
+				font-size: 2.25rem;
+				font-weight: 700;
+				color: var(--text-primary);
+				margin-bottom: 0.75rem;
+			}
+
+			.section-header p {
+				font-size: 1.125rem;
+				color: var(--text-secondary);
+				max-width: 700px;
+				margin: 0 auto;
+			}
+
+			/* Resource Grid */
+			.resource-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+				gap: 1.5rem;
+				margin-bottom: 3rem;
+			}
+
+			.resource-card {
+				background: var(--bg-primary);
+				border-radius: var(--radius-lg);
+				padding: 2rem;
+				box-shadow: var(--shadow-sm);
+				border: 1px solid var(--border);
+				transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+				position: relative;
+				overflow: hidden;
+			}
+
+			.resource-card::before {
+				content: '';
+				position: absolute;
+				top: 0;
+				left: 0;
+				right: 0;
+				height: 4px;
+				background: var(--gradient-primary);
+				transform: scaleX(0);
+				transition: transform 0.3s ease;
+			}
+
+			.resource-card:hover {
+				transform: translateY(-4px);
+				box-shadow: var(--shadow-lg);
+			}
+
+			.resource-card:hover::before {
+				transform: scaleX(1);
+			}
+
+			.resource-card h3 {
+				color: var(--primary);
+				font-size: 1.375rem;
+				font-weight: 700;
+				margin-bottom: 1.25rem;
+				display: flex;
+				align-items: center;
+				gap: 0.5rem;
+			}
+
+			.priority-badge {
+				background: #fef3c7;
+				color: #92400e;
+				padding: 0.25rem 0.75rem;
+				border-radius: 9999px;
+				font-size: 0.75rem;
+				font-weight: 600;
+				text-transform: uppercase;
+				letter-spacing: 0.025em;
+			}
+
+			.resource-list {
+				list-style: none;
+				display: flex;
+				flex-direction: column;
+				gap: 0.75rem;
+			}
+
+			.resource-link {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 1rem;
+				background: var(--bg-tertiary);
+				border-radius: var(--radius-sm);
+				text-decoration: none;
+				color: var(--text-primary);
+				transition: all 0.2s ease;
+				border: 1px solid transparent;
+				position: relative;
+			}
+
+			.resource-link:hover {
+				background: white;
+				border-color: var(--primary);
+				transform: translateX(4px);
+				box-shadow: var(--shadow-sm);
+			}
+
+			.resource-link-content {
+				display: flex;
+				align-items: center;
+				gap: 0.75rem;
+				flex: 1;
+			}
+
+			.resource-icon {
+				font-size: 1.25rem;
+			}
+
+			.star-badge {
+				color: #f59e0b;
+				font-size: 1.125rem;
+			}
+
+			.flag {
+				font-size: 1rem;
+				opacity: 0.7;
+			}
+
+			/* Email Section */
+			.email-section {
+				background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+				color: white;
+				padding: 3rem 0;
+				margin: 4rem 0;
+				border-radius: var(--radius-lg);
+				position: relative;
+				overflow: hidden;
+			}
+
+			.email-section::before {
+				content: '';
+				position: absolute;
+				top: 0;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+			}
+
+			.email-section .container {
+				position: relative;
+				z-index: 1;
+			}
+
+			.email-section h2 {
+				font-size: 2rem;
+				font-weight: 700;
+				text-align: center;
+				margin-bottom: 1.5rem;
+			}
+
+			.email-tips {
+				background: rgba(255, 255, 255, 0.15);
+				backdrop-filter: blur(10px);
+				border: 1px solid rgba(255, 255, 255, 0.2);
+				padding: 1.5rem;
+				border-radius: var(--radius-md);
+				margin-bottom: 2rem;
+			}
+
+			.email-tips h3 {
+				font-size: 1.125rem;
+				font-weight: 600;
+				margin-bottom: 1rem;
+			}
+
+			.tips-list {
+				list-style: none;
+				display: grid;
+				gap: 0.75rem;
+			}
+
+			.tips-list li {
+				display: flex;
+				align-items: center;
+				gap: 0.75rem;
+				font-size: 0.9375rem;
+			}
+
+			.email-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+				gap: 1.5rem;
+			}
+
+			.email-card {
+				background: rgba(255, 255, 255, 0.95);
+				color: var(--text-primary);
+				padding: 1.75rem;
+				border-radius: var(--radius-md);
+				box-shadow: var(--shadow-md);
+			}
+
+			.email-card h3 {
+				color: var(--primary);
+				font-size: 1.25rem;
+				font-weight: 600;
+				margin-bottom: 1.25rem;
+				padding-bottom: 0.75rem;
+				border-bottom: 2px solid var(--border);
+			}
+
+			/* Footer */
+			footer {
+				background: var(--bg-primary);
+				border-top: 1px solid var(--border);
+				padding: 3rem 0;
+				margin-top: 4rem;
+				text-align: center;
+			}
+
+			footer p {
+				color: var(--text-secondary);
+				margin-bottom: 0.75rem;
+			}
+
+			footer a {
+				color: var(--primary);
+				font-weight: 600;
+				text-decoration: none;
+				border-bottom: 1px solid transparent;
+				transition: border-color 0.2s;
+			}
+
+			footer a:hover {
+				border-bottom-color: var(--primary);
+			}
+
+			/* Responsive */
+			@media (max-width: 768px) {
+				header {
+					padding: 3rem 0 2rem;
+				}
+
+				h1 {
+					font-size: 2rem;
+				}
+
+				.quick-start {
+					padding: 1.5rem;
+				}
+
+				.step {
+					padding: 1.5rem 1rem 1.5rem 2.5rem;
+				}
+
+				.step-number {
+					left: -0.5rem;
+					width: 2rem;
+					height: 2rem;
+					font-size: 1rem;
+				}
+
+				.step-content {
+					padding-left: 1.5rem;
+				}
+
+				.resource-grid {
+					grid-template-columns: 1fr;
+				}
+
+				.sub-items {
+					grid-template-columns: 1fr;
+				}
+
+				.email-section {
+					padding: 2rem 0;
+				}
+
+				.hero-cta {
+					flex-direction: column;
+				}
+
+				.btn {
+					width: 100%;
+					justify-content: center;
+				}
+			}
+
+			@media (max-width: 480px) {
+				.container {
+					padding: 0 1rem;
+				}
+
+				.section-header h2 {
+					font-size: 1.75rem;
+				}
+
+				.resource-card {
+					padding: 1.5rem;
+				}
+
+				.email-card {
+					padding: 1.5rem;
+				}
+			}
+
+			/* Smooth animations */
+			@media (prefers-reduced-motion: no-preference) {
+				.step,
+				.resource-card,
+				.resource-link {
+					animation: fadeIn 0.6s ease-out backwards;
+				}
+
+				@keyframes fadeIn {
+					from {
+						opacity: 0;
+						transform: translateY(20px);
+					}
+					to {
+						opacity: 1;
+						transform: translateY(0);
+					}
+				}
+
+				.step:nth-child(1) {
+					animation-delay: 0.1s;
+				}
+				.step:nth-child(2) {
+					animation-delay: 0.2s;
+				}
+				.step:nth-child(3) {
+					animation-delay: 0.3s;
+				}
+				.step:nth-child(4) {
+					animation-delay: 0.4s;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<div class="container">
+				<h1>🛡️ Report Phishing & Malicious URLs</h1>
+				<p>Help protect millions by reporting suspicious websites and cyber threats to the right authorities</p>
+				<div class="hero-cta">
+					<a href="#major-browsers" class="btn btn-primary">
+						<span>🚀</span>
+						<span>Start Reporting</span>
+					</a>
+					<a href="#email-reporting" class="btn btn-secondary">
+						<span>📧</span>
+						<span>Report Phishing Emails</span>
+					</a>
+				</div>
+			</div>
+		</header>
+
+		<div class="container">
+			<section class="quick-start">
+				<h2>How to Report in 4 Simple Steps</h2>
+				<div class="steps">
+					<div class="step">
+						<div class="step-number">1</div>
+						<div class="step-content">
+							<h3>Report to Major Browsers First</h3>
+							<p>
+								Start with Google Safe Browsing and Microsoft Security Intelligence. These protect millions of users worldwide and can
+								quickly block malicious sites.
+							</p>
+							<div class="info-box">
+								<div class="info-box-title">
+									<span>⚡</span>
+									<span>Quick Action</span>
+								</div>
+								<p>Jump to <a href="#major-browsers">Major Browsers section</a> below to report immediately</p>
+							</div>
+						</div>
+					</div>
+
+					<div class="step">
+						<div class="step-number">2</div>
+						<div class="step-content">
+							<h3>Report to Infrastructure Providers</h3>
+							<p>Notify the services hosting or providing access to the malicious content:</p>
+							<div class="sub-items">
+								<div class="sub-item">
+									<span>🏢</span>
+									<span>Hosting Provider</span>
+								</div>
+								<div class="sub-item">
+									<span>🌐</span>
+									<span>DNS Registrar</span>
+								</div>
+								<div class="sub-item">
+									<span>🛡️</span>
+									<span>CDN/Proxy</span>
+								</div>
+							</div>
+							<div class="info-box">
+								<div class="info-box-title">
+									<span>🔍</span>
+									<span>Find Contacts Easily</span>
+								</div>
+								<p>
+									Use <a href="https://phish.report/analysis" target="_blank" rel="noopener noreferrer external">phish.report</a> to identify hosting
+									providers and domain registrars
+								</p>
+							</div>
+						</div>
+					</div>
+
+					<div class="step">
+						<div class="step-number">3</div>
+						<div class="step-content">
+							<h3>Submit to Security Services</h3>
+							<p>Share the URL with security analysis platforms for broader protection:</p>
+							<div class="sub-items">
+								<div class="sub-item">
+									<span>🔍</span>
+									<span>URL Analysis</span>
+								</div>
+								<div class="sub-item">
+									<span>🦠</span>
+									<span>Malware Scanning</span>
+								</div>
+								<div class="sub-item">
+									<span>📊</span>
+									<span>Threat Intelligence</span>
+								</div>
+							</div>
+							<div class="info-box">
+								<div class="info-box-title">
+									<span>🔧</span>
+									<span>Available Tools</span>
+								</div>
+								<p>Scroll down to find URL analysis tools, malware analysis platforms, and security services</p>
+							</div>
+						</div>
+					</div>
+
+					<div class="step">
+						<div class="step-number">4</div>
+						<div class="step-content">
+							<h3>Report to Authorities</h3>
+							<p>For significant threats, notify your country's cybersecurity authorities.</p>
+							<div class="info-box">
+								<div class="info-box-title">
+									<span>🌍</span>
+									<span>Regional Reporting</span>
+								</div>
+								<p>Scroll down to find reporting channels for US, EU, and other regions</p>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<div class="section-header">
+				<h2>Reporting Resources</h2>
+				<p>Comprehensive list of platforms to report malicious URLs and phishing attempts</p>
+			</div>
+
+			<div class="resource-grid">
+				<div id="major-browsers" class="resource-card">
+					<h3>
+						<span>🌐</span>
+						<span>Major Browsers</span>
+					</h3>
+					<div class="info-box" style="margin-bottom: 1.5rem">
+						<div class="info-box-title">
+							<span>⭐</span>
+							<span>Priority</span>
+						</div>
+						<p>Always start here for maximum impact!</p>
+					</div>
+					<ul class="resource-list">
+						<li>
+							<a
+								href="https://safebrowsing.google.com/safebrowsing/report_phish/?hl=en"
+								target="_blank"
+								rel="noopener noreferrer external"
+								class="resource-link"
+							>
+								<div class="resource-link-content">
+									<span class="resource-icon">🔍</span>
+									<span>Google Safe Browsing</span>
+								</div>
+								<span class="star-badge">⭐</span>
+							</a>
+						</li>
+						<li>
+							<a
+								href="https://www.microsoft.com/en-us/wdsi/support/report-unsafe-site-guest"
+								target="_blank"
+								rel="noopener noreferrer external"
+								class="resource-link"
+							>
+								<div class="resource-link-content">
+									<span class="resource-icon">🔒</span>
+									<span>Microsoft Security Intelligence</span>
+								</div>
+								<span class="star-badge">⭐</span>
+							</a>
+						</li>
+					</ul>
+				</div>
+
+				<div class="resource-card">
+					<h3>
+						<span>🔬</span>
+						<span>URL Analysis Tools</span>
+					</h3>
+					<ul class="resource-list">
+						<li>
+							<a href="https://radar.cloudflare.com/scan" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">☁️</span>
+									<span>Cloudflare URL Scanner</span>
+								</div>
+								<span class="star-badge">⭐</span>
+							</a>
+						</li>
+						<li>
+							<a href="https://urlscan.io/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🔎</span>
+									<span>URLScan.io</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a
+								href="https://www.ipqualityscore.com/threat-feeds/malicious-url-scanner"
+								target="_blank"
+								rel="noopener noreferrer external"
+								class="resource-link"
+							>
+								<div class="resource-link-content">
+									<span class="resource-icon">📊</span>
+									<span>IPQS Scanner</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://www.urlvoid.com/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🔍</span>
+									<span>URLVoid</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://www.virustotal.com/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🦠</span>
+									<span>VirusTotal</span>
+								</div>
+							</a>
+						</li>
+					</ul>
+				</div>
+
+				<div class="resource-card">
+					<h3>
+						<span>🧪</span>
+						<span>Malware Analysis</span>
+					</h3>
+					<ul class="resource-list">
+						<li>
+							<a href="https://www.joesandbox.com/#windows" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">📦</span>
+									<span>Joe Sandbox</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://hybrid-analysis.com/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🔬</span>
+									<span>Hybrid Analysis</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://app.any.run/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">▶️</span>
+									<span>ANY.RUN</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://polyswarm.network/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🔷</span>
+									<span>Polyswarm</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://metadefender.opswat.com/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🛡️</span>
+									<span>OPSWAT MetaDefender</span>
+								</div>
+							</a>
+						</li>
+					</ul>
+				</div>
+
+				<div class="resource-card">
+					<h3>
+						<span>🔐</span>
+						<span>Security Services</span>
+					</h3>
+					<ul class="resource-list">
+						<li>
+							<a href="https://submit.spamhaus.org/submit" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">📧</span>
+									<span>Spamhaus</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://report.netcraft.com/report" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🌐</span>
+									<span>Netcraft</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://www.barracudacentral.org/report" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🐟</span>
+									<span>Barracuda Central</span>
+								</div>
+							</a>
+						</li>
+					</ul>
+				</div>
+
+				<div class="resource-card">
+					<h3>
+						<span>🇺🇸</span>
+						<span>United States</span>
+					</h3>
+					<ul class="resource-list">
+						<li>
+							<a href="https://myservices.cisa.gov/irf" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🏛️</span>
+									<span>CISA Incident Reporting</span>
+								</div>
+								<span class="flag">🇺🇸</span>
+							</a>
+						</li>
+						<li>
+							<a href="https://econsumer.gov/?lang=en-US" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🛒</span>
+									<span>eConsumer.gov</span>
+								</div>
+								<span class="flag">🇺🇸</span>
+							</a>
+						</li>
+						<li>
+							<a href="https://reportfraud.ftc.gov/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">⚖️</span>
+									<span>FTC Report Fraud</span>
+								</div>
+								<span class="flag">🇺🇸</span>
+							</a>
+						</li>
+					</ul>
+				</div>
+
+				<div class="resource-card">
+					<h3>
+						<span>🇪🇺</span>
+						<span>European Union</span>
+					</h3>
+					<ul class="resource-list">
+						<li>
+							<a
+								href="https://www.europol.europa.eu/report-a-crime/report-cybercrime-online"
+								target="_blank"
+								rel="noopener noreferrer external"
+								class="resource-link"
+							>
+								<div class="resource-link-content">
+									<span class="resource-icon">🚔</span>
+									<span>Europol Cybercrime</span>
+								</div>
+								<span class="flag">🇪🇺</span>
+							</a>
+						</li>
+						<li>
+							<a href="https://www.ncsc.gov.uk/collection/phishing-scams" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🔒</span>
+									<span>UK NCSC Phishing Guide</span>
+								</div>
+								<span class="flag">🇬🇧</span>
+							</a>
+						</li>
+						<li>
+							<a
+								href="https://www.ncsc.gov.uk/section/about-this-website/report-scam-website"
+								target="_blank"
+								rel="noopener noreferrer external"
+								class="resource-link"
+							>
+								<div class="resource-link-content">
+									<span class="resource-icon">⚠️</span>
+									<span>UK NCSC Report Scam</span>
+								</div>
+								<span class="flag">🇬🇧</span>
+							</a>
+						</li>
+					</ul>
+				</div>
+
+				<div class="resource-card">
+					<h3>
+						<span>🌍</span>
+						<span>Central Europe</span>
+					</h3>
+					<ul class="resource-list">
+						<li>
+							<a
+								href="https://www.internet-beschwerdestelle.de/en/complaint/submit/e-mail-and-spam.html"
+								target="_blank"
+								rel="noopener noreferrer external"
+								class="resource-link"
+							>
+								<div class="resource-link-content">
+									<span class="resource-icon">📝</span>
+									<span>Germany Complaints</span>
+								</div>
+								<span class="flag">🇩🇪</span>
+							</a>
+						</li>
+						<li>
+							<a
+								href="https://www.onlinesicherheit.gv.at/Themen/Erste-Hilfe/Meldestellen.html"
+								target="_blank"
+								rel="noopener noreferrer external"
+								class="resource-link"
+							>
+								<div class="resource-link-content">
+									<span class="resource-icon">🛡️</span>
+									<span>Austria IKT Portal</span>
+								</div>
+								<span class="flag">🇦🇹</span>
+							</a>
+						</li>
+						<li>
+							<a href="https://www.watchlist-internet.at/melde-formular/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">👁️</span>
+									<span>Watchlist Internet</span>
+								</div>
+								<span class="flag">🇦🇹</span>
+							</a>
+						</li>
+						<li>
+							<a href="https://www.report.ncsc.admin.ch/en/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🏔️</span>
+									<span>Swiss NCSC</span>
+								</div>
+								<span class="flag">🇨🇭</span>
+							</a>
+						</li>
+					</ul>
+				</div>
+			</div>
+
+			<section id="email-reporting" class="email-section">
+				<div class="container">
+					<h2>📧 Report Phishing Emails</h2>
+
+					<div class="email-tips">
+						<h3>Quick Email Reporting Guide</h3>
+						<p style="margin-bottom: 1rem">Most email providers have built-in reporting features. Look for:</p>
+						<ul class="tips-list">
+							<li>
+								<span>📨</span>
+								<span>"Report phishing" button in your email client</span>
+							</li>
+							<li>
+								<span>🚫</span>
+								<span>"Mark as spam" with additional phishing report option</span>
+							</li>
+							<li>
+								<span>⚠️</span>
+								<span>"Report suspicious email" in your security settings</span>
+							</li>
+						</ul>
+					</div>
+
+					<div class="email-grid">
+						<div class="email-card">
+							<h3>Major Email Providers</h3>
+							<ul class="resource-list">
+								<li>
+									<a
+										href="https://support.google.com/mail/answer/8253?hl=en"
+										target="_blank"
+										rel="noopener noreferrer external"
+										class="resource-link"
+									>
+										<div class="resource-link-content">
+											<span class="resource-icon">📬</span>
+											<span>Gmail Phishing Report</span>
+										</div>
+										<span class="star-badge">⭐</span>
+									</a>
+								</li>
+								<li>
+									<a
+										href="https://support.microsoft.com/en-us/windows/protect-yourself-from-phishing-0c7ea947-ba98-3bd9-7184-430e1f860a44"
+										target="_blank"
+										rel="noopener noreferrer external"
+										class="resource-link"
+									>
+										<div class="resource-link-content">
+											<span class="resource-icon">📮</span>
+											<span>Microsoft Email Safety</span>
+										</div>
+										<span class="star-badge">⭐</span>
+									</a>
+								</li>
+							</ul>
+						</div>
+
+						<div class="email-card">
+							<h3>Government Agencies</h3>
+							<ul class="resource-list">
+								<li>
+									<a
+										href="https://www.ncsc.gov.uk/collection/phishing-scams/report-scam-email"
+										target="_blank"
+										rel="noopener noreferrer external"
+										class="resource-link"
+									>
+										<div class="resource-link-content">
+											<span class="resource-icon">🔒</span>
+											<span>UK NCSC Email Reporting</span>
+										</div>
+										<span class="flag">🇬🇧</span>
+									</a>
+								</li>
+								<li>
+									<a href="https://www.ic3.gov/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+										<div class="resource-link-content">
+											<span class="resource-icon">🕵️</span>
+											<span>FBI IC3</span>
+										</div>
+										<span class="flag">🇺🇸</span>
+									</a>
+								</li>
+								<li>
+									<a href="https://www.cisa.gov/report" target="_blank" rel="noopener noreferrer external" class="resource-link">
+										<div class="resource-link-content">
+											<span class="resource-icon">🏛️</span>
+											<span>CISA Reporting</span>
+										</div>
+										<span class="flag">🇺🇸</span>
+									</a>
+								</li>
+								<li>
+									<a
+										href="https://www.csa.gov.sg/resources/singcert/report-a-phishing-email"
+										target="_blank"
+										rel="noopener noreferrer external"
+										class="resource-link"
+									>
+										<div class="resource-link-content">
+											<span class="resource-icon">🦁</span>
+											<span>SingCERT</span>
+										</div>
+										<span class="flag">🇸🇬</span>
+									</a>
+								</li>
+								<li>
+									<a href="https://www.antiphishing.ch/en/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+										<div class="resource-link-content">
+											<span class="resource-icon">🏔️</span>
+											<span>Swiss Anti-Phishing</span>
+										</div>
+										<span class="flag">🇨🇭</span>
+									</a>
+								</li>
+							</ul>
+						</div>
+
+						<div class="email-card">
+							<h3>Additional Resources</h3>
+							<ul class="resource-list">
+								<li>
+									<a href="https://apwg.org/resources" target="_blank" rel="noopener noreferrer external" class="resource-link">
+										<div class="resource-link-content">
+											<span class="resource-icon">🌐</span>
+											<span>APWG Reporting</span>
+										</div>
+									</a>
+								</li>
+							</ul>
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+
+		<footer>
+			<div class="container">
+				<p>For immediate reporting of suspicious URLs and potential phishing threats, use our <a href="/">submission form</a>.</p>
+				<p>Stay safe online and help protect others by reporting suspicious activities.</p>
+
+				<div
+					style="
+						max-width: 800px;
+						margin: 2rem auto;
+						padding: 1.5rem;
+						background: var(--bg-tertiary);
+						border-radius: var(--radius-md);
+						border-left: 4px solid var(--text-muted);
+					"
+				>
+					<p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem"><strong>⚠️ Disclaimer:</strong></p>
+					<p style="font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6">
+						This website is provided for <strong>educational and informational purposes only</strong>. The site owner is not responsible for
+						any actions taken based on the information provided, the accuracy of external links, or any consequences resulting from
+						reporting activities. Users are encouraged to exercise their own judgment and verify information independently. By using this
+						resource, you acknowledge that you do so at your own risk and that the site owner assumes no liability for any direct or
+						indirect damages.
+					</p>
+				</div>
+
+				<p style="margin-top: 1.5rem; font-size: 0.875rem; color: var(--text-muted)">
+					© 2025 Phishing Report Center. All links open in new tabs for your safety.
+				</p>
+			</div>
+		</footer>
+	</body>
 </html>
