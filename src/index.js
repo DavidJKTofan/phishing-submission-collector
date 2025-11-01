@@ -2,283 +2,346 @@ export default {
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 
+		// CORS headers for development
+		const corsHeaders = {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+			'Access-Control-Allow-Headers': 'Content-Type',
+		};
+
+		// Handle OPTIONS request for CORS
+		if (request.method === 'OPTIONS') {
+			return new Response(null, {
+				status: 204,
+				headers: corsHeaders,
+			});
+		}
+
 		switch (url.pathname) {
 			case '/submit': {
 				if (request.method !== 'POST') {
-					return new Response('Method not allowed', { status: 405 });
+					return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+						status: 405,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
 				}
 
 				if (request.headers.get('Content-Type') !== 'application/json') {
-					return new Response('Content-Type must be application/json', { status: 400 });
+					return new Response(JSON.stringify({ error: 'Content-Type must be application/json' }), {
+						status: 400,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
 				}
 
 				try {
 					const submittedData = await request.json();
-					
+
 					// Validate Turnstile token
-					const token = submittedData['cf-turnstile-response'];
-					if (!token) {
-						console.error('Turnstile validation failed: Missing token');
-						return new Response('Missing Turnstile token', { status: 400 });
-					}
+					const turnstileValid = await validateTurnstile(
+						submittedData['cf-turnstile-response'],
+						request.headers.get('CF-Connecting-IP'),
+						env
+					);
 
-					// Log Turnstile verification attempt
-					console.log('Attempting Turnstile verification with token:', token.substring(0, 10) + '...');
-
-					// Verify token with Turnstile API
-					const turnstileFormData = new FormData();
-					turnstileFormData.append('secret', env.TURNSTILE_SECRET_KEY);
-					turnstileFormData.append('response', token);
-					turnstileFormData.append('remoteip', request.headers.get('CF-Connecting-IP'));
-					const idempotencyKey = crypto.randomUUID();
-					turnstileFormData.append("idempotency_key", idempotencyKey);
-
-					console.log('Sending Turnstile verification request with idempotencyKey:', idempotencyKey);
-					const turnstileResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-						method: 'POST',
-						body: turnstileFormData,
-					});
-
-					const outcome = await turnstileResponse.json();
-					
-					// Log the complete Turnstile response
-					console.log('Turnstile verification response:', {
-						success: outcome.success,
-						timestamp: new Date().toISOString(),
-						status: turnstileResponse.status,
-						errorCodes: outcome.error_codes || [],
-						hostname: outcome.hostname || null,
-						challengeTimestamp: outcome.challenge_ts || null,
-						action: outcome.action || null,
-						cdata: outcome.cdata || null
-					});
-
-					if (!outcome.success) {
-						console.error('Turnstile validation failed:', {
-							errorCodes: outcome.error_codes,
-							details: outcome
-						});
-						return new Response(JSON.stringify({ 
-							error: 'Invalid Turnstile token', 
-							details: outcome,
-							code: 'INVALID_TURNSTILE'
-						}), { 
-							status: 400,
-							headers: {
-								'Content-Type': 'application/json',
+					if (!turnstileValid.success) {
+						console.error('Turnstile validation failed:', turnstileValid);
+						return new Response(
+							JSON.stringify({
+								error: 'Invalid security verification',
+								details: turnstileValid,
+								code: 'INVALID_TURNSTILE',
+							}),
+							{
+								status: 400,
+								headers: { 'Content-Type': 'application/json', ...corsHeaders },
 							}
-						});
+						);
 					}
 
-					console.log('Turnstile validation successful!');
+					console.log('Turnstile validation successful');
 
-					// If Turnstile validation passed, continue with submission
+					// Process submission
 					const result = await handleSubmission(submittedData, env);
 
 					return new Response(JSON.stringify(result), {
 						status: 200,
-						headers: {
-							'Content-Type': 'application/json',
-							'Access-Control-Allow-Origin': '*',
-						},
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
 					});
 				} catch (error) {
 					console.error('Error processing submission:', error);
-					return new Response(JSON.stringify({ 
-						error: error.message || 'Internal server error',
-						code: error.code || 'INTERNAL_ERROR'
-					}), {
-						status: error.status || 500,
-						headers: {
-							'Content-Type': 'application/json',
-							'Access-Control-Allow-Origin': '*',
-						},
-					});
+					return new Response(
+						JSON.stringify({
+							error: error.message || 'Internal server error',
+							code: error.code || 'INTERNAL_ERROR',
+						}),
+						{
+							status: error.status || 500,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						}
+					);
 				}
 			}
 
 			case '/random': {
 				return new Response(crypto.randomUUID(), {
 					status: 200,
-					headers: {
-						'Content-Type': 'text/plain',
-						'Access-Control-Allow-Origin': '*',
-					},
+					headers: { 'Content-Type': 'text/plain', ...corsHeaders },
 				});
 			}
 
 			default: {
-				return new Response('Not Found', { status: 404 });
+				return new Response(JSON.stringify({ error: 'Not Found' }), {
+					status: 404,
+					headers: { 'Content-Type': 'application/json', ...corsHeaders },
+				});
 			}
 		}
 	},
 };
 
-// Helper Function: Handle Submission
+// Validate Turnstile token
+async function validateTurnstile(token, ip, env) {
+	if (!token) {
+		console.error('Turnstile validation failed: Missing token');
+		return { success: false, error: 'Missing token' };
+	}
+
+	console.log('Attempting Turnstile verification');
+
+	try {
+		const turnstileFormData = new FormData();
+		turnstileFormData.append('secret', env.TURNSTILE_SECRET_KEY);
+		turnstileFormData.append('response', token);
+
+		if (ip) {
+			turnstileFormData.append('remoteip', ip);
+		}
+
+		const idempotencyKey = crypto.randomUUID();
+		turnstileFormData.append('idempotency_key', idempotencyKey);
+
+		console.log('Sending Turnstile verification request');
+		const turnstileResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+			method: 'POST',
+			body: turnstileFormData,
+		});
+
+		const outcome = await turnstileResponse.json();
+
+		console.log('Turnstile verification response:', {
+			success: outcome.success,
+			timestamp: new Date().toISOString(),
+			errorCodes: outcome['error-codes'] || [],
+		});
+
+		return {
+			success: outcome.success,
+			errorCodes: outcome['error-codes'] || [],
+			timestamp: outcome.challenge_ts,
+			hostname: outcome.hostname,
+		};
+	} catch (error) {
+		console.error('Turnstile verification error:', error);
+		return { success: false, error: error.message };
+	}
+}
+
+// Handle form submission
 async function handleSubmission(formData, env) {
+	// Validate form data
 	validateFormData(formData);
 
 	const id = crypto.randomUUID();
 	const requestId = crypto.randomUUID();
+
 	console.log('Starting submission process:', {
 		reportId: id,
 		requestId: requestId,
 		timestamp: new Date().toISOString(),
-		// url: formData.url,
 		category: formData.category,
-		source: formData.source
+		source: formData.source,
 	});
 
-	let result = {
+	const result = {
 		success: true,
 		id,
-		apiErrors: []  // Dedicated array to track API errors
+		apiErrors: [],
 	};
 
-	// Parallel API calls with comprehensive error handling
+	// Define API calls with configurations
 	const apiCalls = [
 		{
 			name: 'URLScan',
 			skip: formData.skip_urlscan,
 			call: () => callUrlScanAPI(formData.url, env),
-			resultKey: 'urlscan_uuid'
+			resultKey: 'urlscan_uuid',
+			timeout: 10000,
 		},
 		{
 			name: 'VirusTotal',
 			skip: formData.skip_virustotal,
 			call: () => callVirusTotalAPI(formData.url, env),
-			resultKey: 'virustotal_scan_id'
+			resultKey: 'virustotal_scan_id',
+			timeout: 10000,
 		},
 		{
 			name: 'IPQualityScore',
 			skip: formData.skip_ipqualityscore,
 			call: () => callIPQSAPI(formData.url, env),
-			resultKey: 'ipqs_scan'
+			resultKey: 'ipqs_scan',
+			timeout: 10000,
 		},
 		{
 			name: 'Cloudflare',
 			skip: formData.skip_cloudflare,
 			call: () => callCloudflareAPI(formData.url, env),
-			resultKey: 'cloudflare_scan_uuid'
-		}
+			resultKey: 'cloudflare_scan_uuid',
+			timeout: 10000,
+		},
 	];
 
-	// Process API calls with individual error handling
-	const scanPromises = apiCalls
-		.filter(api => !api.skip)
-		.map(async (api) => {
-			const startTime = Date.now();
-			try {
-				console.log(`Starting ${api.name} API call:`, {
-					requestId,
-					api: api.name,
-					// url: formData.url,
-					timestamp: new Date().toISOString()
-				});
+	// Process API calls in parallel with individual error handling
+	const activeApiCalls = apiCalls.filter((api) => !api.skip);
 
-				const apiResult = await callApiWithTimeout(api.call, 8000);
-				
-				const duration = Date.now() - startTime;
-				console.log(`${api.name} API call successful:`, {
-					requestId,
-					api: api.name,
-					duration: `${duration}ms`,
-					timestamp: new Date().toISOString()
-				});
+	const apiPromises = activeApiCalls.map(async (api) => {
+		const startTime = Date.now();
 
-				return {
-					name: api.name,
-					resultKey: api.resultKey,
-					data: apiResult,
-					duration
-				};
-			} catch (error) {
-				const duration = Date.now() - startTime;
-				// Capture detailed error information
-				console.error(`${api.name} API call failed:`, {
-					requestId,
-					api: api.name,
-					error: error.message || 'Unknown error',
-					errorDetails: error,
-					duration: `${duration}ms`,
-					timestamp: new Date().toISOString(),
-					url: formData.url
-				});
+		try {
+			console.log(`Starting ${api.name} API call`, { requestId, timestamp: new Date().toISOString() });
 
-				return {
-					name: api.name,
-					error: {
-						message: error.message || 'Unknown API error',
-						details: error,
-						duration
-					}
-				};
-			}
-		});
+			const apiResult = await callApiWithTimeout(api.call, api.timeout);
+			const duration = Date.now() - startTime;
 
-	// Wait for all API calls to complete
-	const scanResults = await Promise.allSettled(scanPromises);
+			console.log(`${api.name} API call successful`, {
+				requestId,
+				duration: `${duration}ms`,
+				timestamp: new Date().toISOString(),
+			});
 
-	// Process results and errors
-	scanResults.forEach(resultData => {
-		if (resultData.status === 'fulfilled') {
-			const apiResult = resultData.value;
+			return {
+				success: true,
+				name: api.name,
+				resultKey: api.resultKey,
+				data: apiResult,
+				duration,
+			};
+		} catch (error) {
+			const duration = Date.now() - startTime;
 
-			// If API call was successful, add to result
-			if (apiResult.data) {
-				result[apiResult.resultKey] = apiResult.data[apiResult.resultKey];
-			}
+			console.error(`${api.name} API call failed`, {
+				requestId,
+				error: error.message,
+				duration: `${duration}ms`,
+				timestamp: new Date().toISOString(),
+			});
 
-			// If API call resulted in an error, track it
-			if (apiResult.error) {
-				result.success = false;
-				result.apiErrors.push({
-					api: apiResult.name,
-					message: apiResult.error.message,
-					details: apiResult.error.details
-				});
-			}
+			return {
+				success: false,
+				name: api.name,
+				error: error.message || 'Unknown error',
+				duration,
+			};
 		}
 	});
 
-	// Save to the database, including any errors
-	await saveReportToDB(env.DB, id, formData, result);
+	// Wait for all API calls to complete
+	const apiResults = await Promise.allSettled(apiPromises);
+
+	// Process results
+	apiResults.forEach((promiseResult) => {
+		if (promiseResult.status === 'fulfilled') {
+			const apiResult = promiseResult.value;
+
+			if (apiResult.success && apiResult.data) {
+				// Add successful result
+				result[apiResult.resultKey] = apiResult.data[apiResult.resultKey];
+			} else if (!apiResult.success) {
+				// Track API error but continue
+				result.apiErrors.push({
+					api: apiResult.name,
+					message: apiResult.error,
+				});
+			}
+		} else {
+			// Promise rejected
+			console.error('API promise rejected:', promiseResult.reason);
+		}
+	});
+
+	// Save to database (always save, even with some API failures)
+	try {
+		await saveReportToDB(env.DB, id, formData, result);
+	} catch (dbError) {
+		console.error('Database save error:', dbError);
+		// Still return the result even if DB save fails
+		result.dbError = 'Failed to save to database';
+	}
+
+	console.log('Submission process completed:', {
+		reportId: id,
+		requestId: requestId,
+		successfulApis: Object.keys(result).filter((k) => !['success', 'id', 'apiErrors', 'dbError'].includes(k)).length,
+		failedApis: result.apiErrors.length,
+		timestamp: new Date().toISOString(),
+	});
 
 	return result;
 }
 
-// Validate incoming data
+// Validate form data
 function validateFormData(data) {
-	// Trim and validate inputs
 	const name = data.name?.trim();
 	const category = data.category?.trim();
 	const source = data.source?.trim();
 	const url = data.url?.trim();
 	const description = data.description?.trim();
 
-	// Comprehensive validation
+	// Name validation
 	if (!name || name.length < 2 || name.length > 100) {
-		throw { status: 400, message: 'Name must be between 2 and 100 characters.' };
+		throw {
+			status: 400,
+			message: 'Name must be between 2 and 100 characters',
+			code: 'INVALID_NAME',
+		};
 	}
 
+	// Category validation
 	const allowedCategories = ['Phishing', 'Crypto Scam', 'Malware', 'Spam', 'Other'];
 	if (!category || !allowedCategories.includes(category)) {
-		throw { status: 400, message: 'Invalid category. Must be one of: ' + allowedCategories.join(', ') };
+		throw {
+			status: 400,
+			message: 'Invalid category',
+			code: 'INVALID_CATEGORY',
+		};
 	}
 
-	if (!source || source.length < 2 || source.length > 100) {
-		throw { status: 400, message: 'Source must be between 2 and 100 characters.' };
+	// Source validation
+	const allowedSources = ['Email', 'SMS', 'Social Media', 'Website', 'Other'];
+	if (!source || !allowedSources.includes(source)) {
+		throw {
+			status: 400,
+			message: 'Invalid source',
+			code: 'INVALID_SOURCE',
+		};
 	}
 
-	// More robust URL validation
-	const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+	// URL validation
+	const urlRegex = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/;
 	if (!url || !urlRegex.test(url)) {
-		throw { status: 400, message: 'Invalid URL format.' };
+		throw {
+			status: 400,
+			message: 'Invalid URL format',
+			code: 'INVALID_URL',
+		};
 	}
 
-	// Optional description length limit
+	// Description validation (optional)
 	if (description && description.length > 500) {
-		throw { status: 400, message: 'Description must be 500 characters or less.' };
+		throw {
+			status: 400,
+			message: 'Description must be 500 characters or less',
+			code: 'INVALID_DESCRIPTION',
+		};
 	}
 }
 
@@ -286,12 +349,7 @@ function validateFormData(data) {
 async function callApiWithTimeout(apiCall, timeoutMs) {
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => {
-			reject({
-				message: 'API Timeout',
-				details: {
-					timeoutDuration: timeoutMs
-				}
-			});
+			reject(new Error(`API timeout after ${timeoutMs}ms`));
 		}, timeoutMs);
 
 		apiCall()
@@ -306,7 +364,7 @@ async function callApiWithTimeout(apiCall, timeoutMs) {
 	});
 }
 
-// API: URLScan
+// API: URLScan.io
 async function callUrlScanAPI(submittedUrl, env) {
 	try {
 		const response = await fetch('https://urlscan.io/api/v1/scan/', {
@@ -315,43 +373,26 @@ async function callUrlScanAPI(submittedUrl, env) {
 				'Content-Type': 'application/json',
 				'API-Key': env.URLSCAN_API_KEY,
 			},
-			body: JSON.stringify({ url: submittedUrl, visibility: 'unlisted' }),
+			body: JSON.stringify({
+				url: submittedUrl,
+				visibility: 'unlisted',
+			}),
 		});
+
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}));
+			throw new Error(errorData.message || errorData.description || `HTTP ${response.status}`);
+		}
 
 		const data = await response.json();
-		
-		if (!response.ok) {
-			console.error('URLScan API Error Details:', {
-				status: response.status,
-				statusText: response.statusText,
-				response: data
-			});
-			throw new Error(`Failed to fetch from URLScan API: ${response.status} - ${data.message || data.description || 'No error details available'}`);
-		}
-		
-		if (!data || !data.uuid) {
-			console.error('URLScan API Invalid Response:', data);
-			throw new Error('Invalid data from URLScan API: Missing UUID');
+
+		if (!data.uuid) {
+			throw new Error('Missing UUID in response');
 		}
 
-		console.log('URLScan API Success:', {
-			uuid: data.uuid,
-			message: data.message,
-			visibility: data.visibility
-		});
-
-		// Return the UUID directly, not nested
-		return {
-			urlscan_uuid: data.uuid
-		};
+		return { urlscan_uuid: data.uuid };
 	} catch (error) {
-		console.error('URLScan API Error:', {
-			error: error.message,
-			url: submittedUrl
-		});
-		throw {
-			urlscan_uuid_error: error.message || 'Failed to fetch from URLScan API'
-		};
+		throw new Error(`URLScan API: ${error.message}`);
 	}
 }
 
@@ -369,93 +410,98 @@ async function callVirusTotalAPI(submittedUrl, env) {
 		});
 
 		if (!response.ok) {
-			throw { virustotal_scan_id_error: 'Failed to fetch from VirusTotal API' };
+			throw new Error(`HTTP ${response.status}`);
 		}
 
 		const data = await response.json();
 
-		if (data && data.data && data.data.id) {
-			// Extract the scan ID using the correct substring logic
-			const rawScanId = data.data.id;
-			const cleanScanId = rawScanId.substring(2, rawScanId.lastIndexOf('-'));
-
-			return { virustotal_scan_id: cleanScanId };
-		} else {
-			throw { virustotal_scan_id_error: 'Missing or invalid Scan ID in VirusTotal API response' };
+		if (!data.data?.id) {
+			throw new Error('Missing scan ID in response');
 		}
+
+		// Extract the clean scan ID
+		const rawScanId = data.data.id;
+		const cleanScanId = rawScanId.substring(2, rawScanId.lastIndexOf('-'));
+
+		return { virustotal_scan_id: cleanScanId };
 	} catch (error) {
-		console.warn('VirusTotal API Error:', error);
-		throw { virustotal_scan_id_error: 'VirusTotal API call failed or returned invalid data' };
+		throw new Error(`VirusTotal API: ${error.message}`);
 	}
 }
 
 // API: IPQualityScore
 async function callIPQSAPI(submittedUrl, env) {
 	try {
-		const response = await fetch('https://ipqualityscore.com/api/json/url/' + env.IPQS_API_KEY + '/' + encodeURIComponent(submittedUrl));
+		const apiUrl = `https://ipqualityscore.com/api/json/url/${env.IPQS_API_KEY}/${encodeURIComponent(submittedUrl)}`;
+		const response = await fetch(apiUrl);
 
 		if (!response.ok) {
-			console.log('ERROR');
-			throw { ipqs_scan_error: 'Failed to fetch from IPQualityScore API' };
+			throw new Error(`HTTP ${response.status}`);
 		}
 
 		const data = await response.json();
+
 		if (!data.success) {
-			console.log('ERROR');
-			throw { ipqs_scan_error: 'Invalid data from IPQualityScore API' };
+			throw new Error(data.message || 'API returned success: false');
 		}
 
 		return { ipqs_scan: data };
 	} catch (error) {
-		console.warn('IPQS API Error:', error);
-		throw { ipqs_scan_error: 'IPQS API call failed or returned invalid data' };
+		throw new Error(`IPQualityScore API: ${error.message}`);
 	}
 }
 
-// API: Cloudflare
+// API: Cloudflare Radar
 async function callCloudflareAPI(submittedUrl, env) {
-	const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/urlscanner/scan`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'X-Auth-Key': env.CLOUDFLARE_API_KEY,
-			'X-Auth-Email': env.CLOUDFLARE_USER_EMAIL,
-		},
-		body: JSON.stringify({ url: submittedUrl, visibility: 'unlisted' }),
-	});
-
-	if (!response.ok) {
-		console.log('ERROR');
-		throw { cloudflare_scan_uuid_error: 'Failed to fetch from Cloudflare URLScanner API' };
-	}
-
-	const data = await response.json();
-	if (!data.result || !data.result.uuid) {
-		console.log('ERROR');
-		throw { cloudflare_scan_uuid_error: 'Invalid data from Cloudflare API' };
-	}
-
-	return { cloudflare_scan_uuid: data.result.uuid };
-}
-
-// Database Save Function
-async function saveReportToDB(db, id, formData, result) {
-	const dbStartTime = Date.now();
 	try {
-		console.log('Starting database save:', {
-			reportId: id,
-			timestamp: new Date().toISOString()
+		const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/urlscanner/scan`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-Auth-Key': env.CLOUDFLARE_API_KEY,
+				'X-Auth-Email': env.CLOUDFLARE_USER_EMAIL,
+			},
+			body: JSON.stringify({
+				url: submittedUrl,
+				visibility: 'unlisted',
+			}),
 		});
 
-		const apiErrorsJson = result.apiErrors ? JSON.stringify(result.apiErrors) : null;
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}));
+			throw new Error(errorData.errors?.[0]?.message || `HTTP ${response.status}`);
+		}
+
+		const data = await response.json();
+
+		if (!data.result?.uuid) {
+			throw new Error('Missing UUID in response');
+		}
+
+		return { cloudflare_scan_uuid: data.result.uuid };
+	} catch (error) {
+		throw new Error(`Cloudflare API: ${error.message}`);
+	}
+}
+
+// Save report to D1 database
+async function saveReportToDB(db, id, formData, result) {
+	const startTime = Date.now();
+
+	try {
+		console.log('Saving to database:', { reportId: id });
+
+		const apiErrorsJson = result.apiErrors.length > 0 ? JSON.stringify(result.apiErrors) : null;
 
 		await db
 			.prepare(
-				`INSERT INTO reports_v2 (
+				`
+				INSERT INTO reports_v2 (
 					id, name, category, source, url, description, 
 					urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid,
 					api_errors, submission_success
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`
 			)
 			.bind(
 				id,
@@ -463,33 +509,28 @@ async function saveReportToDB(db, id, formData, result) {
 				formData.category,
 				formData.source,
 				formData.url,
-				formData.description,
+				formData.description || null,
 				result.urlscan_uuid || null,
 				result.virustotal_scan_id || null,
-				result.ipqs_scan || null,
+				result.ipqs_scan ? JSON.stringify(result.ipqs_scan) : null,
 				result.cloudflare_scan_uuid || null,
 				apiErrorsJson,
-				result.success
+				result.apiErrors.length === 0
 			)
 			.run();
 
-		const dbDuration = Date.now() - dbStartTime;
+		const duration = Date.now() - startTime;
 		console.log('Database save completed:', {
 			reportId: id,
-			duration: `${dbDuration}ms`,
-			timestamp: new Date().toISOString(),
-			success: true
+			duration: `${duration}ms`,
 		});
 	} catch (error) {
-		const dbDuration = Date.now() - dbStartTime;
-		console.error('Database Save Error:', {
+		const duration = Date.now() - startTime;
+		console.error('Database save error:', {
 			reportId: id,
 			error: error.message,
-			errorDetails: error,
-			duration: `${dbDuration}ms`,
-			timestamp: new Date().toISOString(),
-			success: false
+			duration: `${duration}ms`,
 		});
-		throw { status: 500, message: 'Database Error', error };
+		throw new Error('Database save failed');
 	}
 }
