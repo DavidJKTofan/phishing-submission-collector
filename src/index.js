@@ -89,11 +89,48 @@ export default {
 				});
 			}
 
+			// New endpoint to get a report by ID
+			case url.pathname.startsWith('/api/report/') ? url.pathname : '': {
+				if (request.method !== 'GET') {
+					return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+						status: 405,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				try {
+					const id = url.pathname.split('/').pop();
+					const report = await getReportFromDB(env.DB, id);
+
+					if (!report) {
+						return new Response(JSON.stringify({ error: 'Report not found' }), {
+							status: 404,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						});
+					}
+
+					return new Response(JSON.stringify(report), {
+						status: 200,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				} catch (error) {
+					console.error('Error fetching report:', error);
+					if (error.message === 'Invalid report ID format') {
+						return new Response(JSON.stringify({ error: 'Invalid Report ID format' }), {
+							status: 400,
+							headers: { 'Content-Type': 'application/json', ...corsHeaders },
+						});
+					}
+					return new Response(JSON.stringify({ error: 'Internal server error' }), {
+						status: 500,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+			}
+
 			default: {
-				return new Response(JSON.stringify({ error: 'Not Found' }), {
-					status: 404,
-					headers: { 'Content-Type': 'application/json', ...corsHeaders },
-				});
+				// Return asset from KV store
+				return env.ASSETS.fetch(request);
 			}
 		}
 	},
@@ -532,5 +569,23 @@ async function saveReportToDB(db, id, formData, result) {
 			duration: `${duration}ms`,
 		});
 		throw new Error('Database save failed');
+	}
+}
+
+// Get a report by ID from the D1 database
+async function getReportFromDB(db, id) {
+	// Validate the ID format (UUID)
+	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+	if (!uuidRegex.test(id)) {
+		throw new Error('Invalid report ID format');
+	}
+
+	try {
+		const stmt = db.prepare('SELECT * FROM reports_v2 WHERE id = ?');
+		const result = await stmt.bind(id).first();
+		return result;
+	} catch (error) {
+		console.error('Database read error:', error);
+		throw new Error('Database read failed');
 	}
 }

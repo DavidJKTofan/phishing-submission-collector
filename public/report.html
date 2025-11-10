@@ -622,6 +622,45 @@
 					animation-delay: 0.4s;
 				}
 			}
+
+			/* Report Status Section */
+			.result-container {
+				margin-top: 2rem;
+				padding: 1.5rem;
+				background: var(--bg-primary);
+				border-radius: var(--radius-md);
+				border: 1px solid var(--border);
+				box-shadow: var(--shadow-sm);
+			}
+
+			.report-grid {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 1rem;
+			}
+
+			.report-item {
+				padding: 0.5rem;
+				background: var(--bg-tertiary);
+				border-radius: var(--radius-sm);
+			}
+
+			.report-item.full-width {
+				grid-column: 1 / -1;
+			}
+
+			.alert {
+				padding: 1rem;
+				margin-top: 1rem;
+				border-radius: var(--radius-sm);
+				font-weight: 600;
+			}
+
+			.alert-error {
+				background: #fef2f2;
+				color: #991b1b;
+				border: 1px solid #fecaca;
+			}
 		</style>
 	</head>
 	<body>
@@ -1273,6 +1312,19 @@
 					</div>
 				</div>
 			</section>
+
+			<section id="report-status" class="quick-start">
+				<h2>Check Report Status</h2>
+				<form id="reportStatusForm">
+					<div class="form-group">
+						<label for="reportId">Enter your Report ID</label>
+						<input type="text" id="reportId" name="reportId" placeholder="e.g., 123e4567-e89b-12d3-a456-426614174000" required />
+					</div>
+					<button type="submit" class="btn btn-primary">Check Status</button>
+				</form>
+				<div id="reportResult" class="result-container" style="display: none"></div>
+				<div id="errorMessage" class="alert alert-error" style="display: none"></div>
+			</section>
 		</div>
 
 		<footer>
@@ -1301,5 +1353,86 @@
 				</div>
 			</div>
 		</footer>
+
+		<script>
+			document.addEventListener('DOMContentLoaded', function () {
+				const reportForm = document.getElementById('reportStatusForm');
+				const reportIdInput = document.getElementById('reportId');
+				const resultContainer = document.getElementById('reportResult');
+				const errorMessage = document.getElementById('errorMessage');
+
+				reportForm.addEventListener('submit', async function (e) {
+					e.preventDefault();
+					const reportId = reportIdInput.value.trim();
+
+					if (!reportId) {
+						showError('Please enter a Report ID.');
+						return;
+					}
+
+					// Clear previous results and errors
+					resultContainer.innerHTML = '';
+					errorMessage.style.display = 'none';
+					resultContainer.style.display = 'none';
+
+					// Add loading indicator
+					const submitButton = reportForm.querySelector('button');
+					submitButton.disabled = true;
+					submitButton.textContent = 'Searching...';
+
+					try {
+						const response = await fetch(`/api/report/${reportId}`);
+						const data = await response.json();
+
+						if (response.ok) {
+							displayReport(data);
+						} else {
+							showError(data.error || 'An unknown error occurred.');
+						}
+					} catch (error) {
+						showError('Failed to fetch the report. Please check your network connection.');
+					} finally {
+						// Restore button
+						submitButton.disabled = false;
+						submitButton.textContent = 'Check Status';
+					}
+				});
+
+				function showError(message) {
+					errorMessage.textContent = message;
+					errorMessage.style.display = 'block';
+				}
+
+				function displayReport(report) {
+					resultContainer.style.display = 'block';
+					let content = `
+						<h3>Report Details (ID: ${report.id})</h3>
+						<div class="report-grid">
+							<div class="report-item"><strong>Name:</strong> ${report.name}</div>
+							<div class="report-item"><strong>Category:</strong> ${report.category}</div>
+							<div class="report-item"><strong>Source:</strong> ${report.source}</div>
+							<div class="report-item full-width"><strong>URL:</strong> ${report.url}</div>
+							<div class="report-item full-width"><strong>Description:</strong> ${report.description || 'N/A'}</div>
+							<div class="report-item"><strong>Submission Success:</strong> ${report.submission_success ? 'Yes' : 'No'}</div>
+						</div>
+					`;
+
+					if (report.urlscan_uuid) {
+						content += `<div class="report-item"><strong>URLScan UUID:</strong> ${report.urlscan_uuid}</div>`;
+					}
+					if (report.virustotal_scan_id) {
+						content += `<div class="report-item"><strong>VirusTotal Scan ID:</strong> ${report.virustotal_scan_id}</div>`;
+					}
+					if (report.cloudflare_scan_uuid) {
+						content += `<div class="report-item"><strong>Cloudflare Scan UUID:</strong> ${report.cloudflare_scan_uuid}</div>`;
+					}
+					if (report.api_errors) {
+						content += `<div class="report-item full-width"><strong>API Errors:</strong> ${report.api_errors}</div>`;
+					}
+
+					resultContainer.innerHTML = content;
+				}
+			});
+		</script>
 	</body>
 </html>
