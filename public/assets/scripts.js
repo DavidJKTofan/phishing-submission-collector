@@ -1,4 +1,3 @@
-const TURNSTILE_SITE_KEY = '0x4AAAAAAA1Q4zDSRdaSX7mZ';
 const TURNSTILE_TOKEN_TTL_MS = 4 * 60 * 1000;
 
 const state = {
@@ -64,11 +63,18 @@ function renderTurnstileWidget() {
 
 	hideTurnstileError();
 
+	const sitekey = elements.turnstileContainer.dataset.sitekey;
+	if (!sitekey) {
+		console.error('Missing data-sitekey on Turnstile container');
+		showTurnstileError('Security verification misconfigured.');
+		return;
+	}
+
 	try {
 		state.turnstileWidget = window.turnstile.render('#turnstile-container', {
-			sitekey: TURNSTILE_SITE_KEY,
+			sitekey,
 			action: 'submit-report',
-			theme: 'light',
+			theme: 'auto',
 			size: 'normal',
 			retry: 'auto',
 			'retry-interval': 8000,
@@ -152,20 +158,14 @@ function setSubmitEnabled(enabled) {
 
 function setupFormValidation() {
 	const urlInput = document.getElementById('url');
-	urlInput.addEventListener('blur', function () {
-		validateField('url');
-	});
-
-	urlInput.addEventListener('input', function () {
-		clearFieldError('url');
-	});
+	urlInput.addEventListener('blur', () => validateField('url'));
+	urlInput.addEventListener('input', () => clearFieldError('url'));
 
 	const descriptionInput = document.getElementById('description');
 	const descriptionHint = document.getElementById('description-hint');
 
 	descriptionInput.addEventListener('input', function () {
 		const remaining = 500 - this.value.length;
-
 		if (remaining < 0) {
 			descriptionHint.textContent = `${Math.abs(remaining)} characters over limit`;
 			descriptionHint.style.color = 'var(--danger)';
@@ -186,6 +186,16 @@ function setupFormValidation() {
 		field.addEventListener('input', () => clearFieldError(fieldId));
 		field.addEventListener('change', () => clearFieldError(fieldId));
 	});
+}
+
+function isValidHttpUrl(value) {
+	if (!value || value.length > 2048) return false;
+	try {
+		const parsed = new URL(value);
+		return ['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.hostname);
+	} catch {
+		return false;
+	}
 }
 
 function validateField(fieldId) {
@@ -249,9 +259,7 @@ function validateForm() {
 	let isValid = true;
 
 	fields.forEach((fieldId) => {
-		if (!validateField(fieldId)) {
-			isValid = false;
-		}
+		if (!validateField(fieldId)) isValid = false;
 	});
 
 	const description = document.getElementById('description').value;
@@ -273,15 +281,6 @@ function validateForm() {
 	return isValid;
 }
 
-function isValidHttpUrl(value) {
-	try {
-		const parsed = new URL(value);
-		return ['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.hostname);
-	} catch {
-		return false;
-	}
-}
-
 function showFieldError(fieldId, message) {
 	const errorElement = document.getElementById(`${fieldId}-error`);
 	if (errorElement) {
@@ -292,9 +291,7 @@ function showFieldError(fieldId, message) {
 
 function clearFieldError(fieldId) {
 	const errorElement = document.getElementById(`${fieldId}-error`);
-	if (errorElement) {
-		errorElement.style.display = 'none';
-	}
+	if (errorElement) errorElement.style.display = 'none';
 	document.getElementById(fieldId).classList.remove('error');
 }
 
@@ -308,11 +305,6 @@ function hideError() {
 	elements.errorMessage.style.display = 'none';
 }
 
-function showWarning(message) {
-	elements.warningMessage.textContent = message;
-	elements.warningMessage.style.display = 'block';
-}
-
 function hideWarning() {
 	elements.warningMessage.style.display = 'none';
 }
@@ -320,18 +312,10 @@ function hideWarning() {
 function setupFormSubmission() {
 	elements.form.addEventListener('submit', async function (e) {
 		e.preventDefault();
-
-		if (state.isSubmitting) {
-			return;
-		}
-
+		if (state.isSubmitting) return;
 		hideError();
 		hideWarning();
-
-		if (!validateForm()) {
-			return;
-		}
-
+		if (!validateForm()) return;
 		await submitForm();
 	});
 }
@@ -357,9 +341,7 @@ async function submitForm() {
 	try {
 		const response = await fetch('/submit', {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(formData),
 		});
 
@@ -380,22 +362,36 @@ async function submitForm() {
 	}
 }
 
+function createElement(tagName, options = {}) {
+	const element = document.createElement(tagName);
+	if (options.className) element.className = options.className;
+	if (options.text !== undefined) element.textContent = options.text;
+	if (options.attrs) {
+		for (const [name, value] of Object.entries(options.attrs)) {
+			element.setAttribute(name, value);
+		}
+	}
+	return element;
+}
+
+function createResultRow(label) {
+	const row = createElement('p');
+	row.appendChild(createElement('strong', { text: label }));
+	return row;
+}
+
 function handleSubmissionSuccess(data) {
 	elements.form.reset();
 	resetTurnstile();
 
-	const existingResult = document.querySelector('.result-container');
-	if (existingResult) {
-		existingResult.remove();
-	}
+	document.querySelector('.result-container')?.remove();
 
 	const resultContainer = createElement('div', { className: 'result-container' });
-	resultContainer.appendChild(createElement('h2', { text: 'Submission Successful' }));
+	resultContainer.appendChild(createElement('h2', { text: '✅ Submission Successful!' }));
 
 	const details = createElement('div', { className: 'result-details' });
 	const reportIdRow = createResultRow('Report ID');
-	const code = createElement('span', { className: 'result-code', text: data.id || 'Unknown' });
-	reportIdRow.appendChild(code);
+	reportIdRow.appendChild(createElement('span', { className: 'result-mono', text: data.id || 'Unknown' }));
 	details.appendChild(reportIdRow);
 
 	const apiResults = [
@@ -403,44 +399,41 @@ function handleSubmissionSuccess(data) {
 			value: data.urlscan_uuid,
 			name: 'URLScan.io Analysis',
 			url: (id) => `https://urlscan.io/result/${encodeURIComponent(id)}/`,
-			text: 'View detailed scan results',
+			text: 'View detailed scan results →',
 		},
 		{
 			value: data.virustotal_scan_id,
 			name: 'VirusTotal Scan',
 			url: (id) => `https://www.virustotal.com/gui/url/${encodeURIComponent(id)}`,
-			text: 'View malware analysis',
+			text: 'View malware analysis →',
 		},
 		{
 			value: data.cloudflare_scan_uuid,
 			name: 'Cloudflare Radar Scan',
 			url: (id) => `https://radar.cloudflare.com/scan/${encodeURIComponent(id)}/summary`,
-			text: 'View security report',
+			text: 'View security report →',
 		},
 	];
 
 	apiResults.forEach((result) => {
-		if (!result.value) {
-			return;
-		}
-
+		if (!result.value) return;
 		const row = createResultRow(result.name);
-		const link = createElement('a', {
-			text: result.text,
-			attrs: {
-				href: result.url(result.value),
-				target: '_blank',
-				rel: 'nofollow noopener noreferrer external',
-			},
-		});
-		row.appendChild(link);
+		row.appendChild(
+			createElement('a', {
+				text: result.text,
+				attrs: {
+					href: result.url(result.value),
+					target: '_blank',
+					rel: 'nofollow noopener noreferrer external',
+				},
+			})
+		);
 		details.appendChild(row);
 	});
 
 	if (Array.isArray(data.apiErrors) && data.apiErrors.length > 0) {
-		const errorDetails = createElement('details', { className: 'api-error-details' });
-		errorDetails.appendChild(createElement('summary', { text: `Some API calls had issues (${data.apiErrors.length})` }));
-
+		const errorDetails = createElement('details', { className: 'result-api-errors' });
+		errorDetails.appendChild(createElement('summary', { text: `⚠️ Some API calls had issues (${data.apiErrors.length})` }));
 		const list = createElement('ul');
 		data.apiErrors.forEach((error) => {
 			const item = createElement('li');
@@ -455,52 +448,34 @@ function handleSubmissionSuccess(data) {
 	resultContainer.appendChild(details);
 	elements.form.parentNode.insertBefore(resultContainer, elements.form.nextSibling);
 
-	setTimeout(() => {
-		resultContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-	}, 100);
-}
-
-function createResultRow(label) {
-	const row = createElement('p');
-	row.appendChild(createElement('strong', { text: label }));
-	return row;
+	setTimeout(() => resultContainer.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
 }
 
 function handleSubmissionError(data) {
 	const errorMsg = data.error || 'Submission failed. Please try again.';
 	showError(errorMsg);
-
 	if (data.code === 'INVALID_TURNSTILE' || errorMsg.toLowerCase().includes('turnstile')) {
 		resetTurnstile();
 	}
 }
 
 function setupAnimations() {
-	if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-		return;
-	}
+	if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-	const observer = new IntersectionObserver(
-		(entries) => {
-			entries.forEach((entry, index) => {
-				if (entry.isIntersecting) {
-					setTimeout(() => {
-						entry.target.style.opacity = '1';
-						entry.target.style.transform = 'translateY(0)';
-					}, index * 50);
-					observer.unobserve(entry.target);
-				}
-			});
-		},
-		{ threshold: 0.1 }
-	);
-
-	document.querySelectorAll('.form-group, .quick-link').forEach((el, index) => {
+	const targets = document.querySelectorAll('.form-group, .quick-link');
+	targets.forEach((el) => {
 		el.style.opacity = '0';
 		el.style.transform = 'translateY(20px)';
 		el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-		el.style.transitionDelay = `${index * 0.05}s`;
-		observer.observe(el);
+	});
+
+	requestAnimationFrame(() => {
+		targets.forEach((el, index) => {
+			setTimeout(() => {
+				el.style.opacity = '1';
+				el.style.transform = 'translateY(0)';
+			}, index * 50);
+		});
 	});
 }
 
@@ -509,23 +484,3 @@ document.addEventListener('visibilitychange', function () {
 		resetTurnstile();
 	}
 });
-
-function createElement(tagName, options = {}) {
-	const element = document.createElement(tagName);
-
-	if (options.className) {
-		element.className = options.className;
-	}
-
-	if (options.text !== undefined) {
-		element.textContent = options.text;
-	}
-
-	if (options.attrs) {
-		for (const [name, value] of Object.entries(options.attrs)) {
-			element.setAttribute(name, value);
-		}
-	}
-
-	return element;
-}

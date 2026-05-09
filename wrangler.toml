@@ -2,11 +2,20 @@
 name = "phish-submission-collector"
 main = "src/index.js"
 compatibility_date = "2026-05-09"
-compatibility_flags = ["nodejs_compat"]
 assets = { directory = "./public", binding = "ASSETS" }
 
 workers_dev = false
 preview_urls = false
+
+# Public, non-secret configuration. Override per-environment as needed.
+# - ALLOWED_ORIGINS: comma-separated list of origins permitted to call /submit and /api/report.
+#   Use "*" to disable the allowlist (default if unset). Production should pin to the exact
+#   public origin, e.g. "https://report.automatic-demo.com".
+# - TURNSTILE_EXPECTED_HOSTNAMES: optional comma-separated allowlist for the hostname returned
+#   by Turnstile siteverify. Leave unset to disable the check.
+[vars]
+# ALLOWED_ORIGINS = "https://report.automatic-demo.com"
+# TURNSTILE_EXPECTED_HOSTNAMES = "report.automatic-demo.com"
 
 [[d1_databases]]
 binding = "DB"

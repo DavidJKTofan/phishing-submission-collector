@@ -39,8 +39,7 @@
 		<meta name="robots" content="index, follow" />
 
 		<!-- Stylesheets -->
-		<link rel="preload" href="assets/styles.css" as="style" onload="this.rel='stylesheet'" />
-		<noscript><link rel="stylesheet" href="assets/styles.css" /></noscript>
+		<link rel="stylesheet" href="assets/styles.css" />
 
 		<!-- Scripts -->
 		<script src="assets/scripts.js" defer></script>
@@ -58,7 +57,7 @@
 		<!-- Hero Section -->
 		<div class="hero">
 			<div class="hero-content">
-				<div class="shield-icon">
+				<div class="shield-icon" aria-hidden="true">
 					<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
 						<path d="M12 8v4"></path>
@@ -81,7 +80,7 @@
 						target="_blank"
 						rel="noopener noreferrer external"
 					>
-						<div class="link-icon">
+						<div class="link-icon" aria-hidden="true">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
 								<path d="M11.4 0H0v11.4h11.4V0zm12.6 0H12.6v11.4H24V0zM11.4 12.6H0V24h11.4V12.6zm12.6 0H12.6V24H24V12.6z" />
 							</svg>
@@ -97,7 +96,7 @@
 						target="_blank"
 						rel="noopener noreferrer external"
 					>
-						<div class="link-icon">
+						<div class="link-icon" aria-hidden="true">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
 								<path
 									d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -119,7 +118,7 @@
 						</div>
 					</a>
 					<a href="https://report.netcraft.com/report" class="quick-link netcraft" target="_blank" rel="noopener noreferrer external">
-						<div class="link-icon">
+						<div class="link-icon" aria-hidden="true">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<circle cx="12" cy="12" r="10"></circle>
 								<path d="M12 6v6l4 2"></path>
@@ -270,18 +269,19 @@
 
 					<!-- Turnstile Widget -->
 					<div class="turnstile-wrapper">
-						<div id="turnstile-container"></div>
-						<div id="turnstile-error" class="turnstile-error"></div>
+						<div id="turnstile-container" data-sitekey="0x4AAAAAAA1Q4zDSRdaSX7mZ"></div>
+						<div id="turnstile-error" class="turnstile-error" role="alert" aria-live="polite"></div>
 					</div>
 					<input type="hidden" id="cf-turnstile-response" name="cf-turnstile-response" />
 
-					<button type="submit" id="submit-btn" class="submit-button" disabled>
+					<button type="submit" id="submit-btn" class="submit-button" disabled aria-describedby="submit-hint">
 						<span class="button-content">
 							<span class="button-text">Submit Report</span>
-							<span class="button-icon">→</span>
+							<span class="button-icon" aria-hidden="true">→</span>
 						</span>
-						<span class="button-loader"></span>
+						<span class="button-loader" aria-hidden="true"></span>
 					</button>
+					<p id="submit-hint" class="submit-hint">Complete the security check above to enable submission.</p>
 				</form>
 			</div>
 		</div>

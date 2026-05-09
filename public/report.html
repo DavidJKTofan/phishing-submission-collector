@@ -624,45 +624,6 @@
 			}
 
 			/* Report Status Section */
-			#reportStatusForm {
-				display: grid;
-				gap: 1rem;
-				max-width: 720px;
-				margin: 0 auto;
-			}
-
-			#reportStatusForm .form-group {
-				display: grid;
-				gap: 0.5rem;
-			}
-
-			#reportStatusForm label {
-				font-weight: 600;
-				color: var(--text-primary);
-			}
-
-			#reportId {
-				width: 100%;
-				min-width: 0;
-				padding: 0.875rem 1rem;
-				border: 1px solid var(--border);
-				border-radius: var(--radius-sm);
-				background: var(--bg-primary);
-				color: var(--text-primary);
-				font: inherit;
-			}
-
-			#reportId:focus {
-				outline: none;
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
-			}
-
-			#reportStatusForm .btn {
-				width: fit-content;
-				justify-self: center;
-			}
-
 			.result-container {
 				margin-top: 2rem;
 				padding: 1.5rem;
@@ -682,12 +643,6 @@
 				padding: 0.5rem;
 				background: var(--bg-tertiary);
 				border-radius: var(--radius-sm);
-				overflow-wrap: anywhere;
-			}
-
-			.report-item strong {
-				display: block;
-				margin-bottom: 0.25rem;
 			}
 
 			.report-item.full-width {
@@ -707,13 +662,103 @@
 				border: 1px solid #fecaca;
 			}
 
-			@media (max-width: 768px) {
-				.report-grid {
-					grid-template-columns: 1fr;
+			/* Reduced motion: disable decorative animations site-wide */
+			@media (prefers-reduced-motion: reduce) {
+				*,
+				*::before,
+				*::after {
+					animation-duration: 0.001ms !important;
+					animation-iteration-count: 1 !important;
+					transition-duration: 0.001ms !important;
+					scroll-behavior: auto !important;
+				}
+			}
+
+			/* Dark mode palette */
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--bg-primary: #1e293b;
+					--bg-secondary: #0f172a;
+					--bg-tertiary: #1e293b;
+					--text-primary: #e2e8f0;
+					--text-secondary: #cbd5e1;
+					--text-muted: #94a3b8;
+					--border: #334155;
+					--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+					--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+					--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+					--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
 				}
 
-				#reportStatusForm .btn {
-					width: 100%;
+				body {
+					background: var(--bg-secondary);
+					color: var(--text-primary);
+				}
+
+				.quick-start,
+				.resource-card,
+				.email-card {
+					background: var(--bg-primary);
+					border-color: var(--border);
+				}
+
+				.step,
+				.resource-link,
+				.report-item {
+					background: var(--bg-tertiary);
+				}
+
+				.resource-link:hover {
+					background: #0b1220;
+				}
+
+				.sub-item {
+					background: var(--bg-primary);
+					color: var(--text-primary);
+					border-color: var(--border);
+				}
+
+				.info-box {
+					background: rgba(37, 99, 235, 0.1);
+					border-color: rgba(37, 99, 235, 0.3);
+				}
+
+				.priority-badge {
+					background: #451a03;
+					color: #fde68a;
+				}
+
+				footer {
+					background: var(--bg-primary);
+					border-top-color: var(--border);
+				}
+
+				.email-card {
+					background: rgba(255, 255, 255, 0.06);
+					color: var(--text-primary);
+				}
+
+				.email-card h3 {
+					border-bottom-color: var(--border);
+				}
+
+				.alert-error {
+					background: #450a0a;
+					color: #fecaca;
+					border-color: #b91c1c;
+				}
+
+				input[type='text'],
+				input[type='url'],
+				select,
+				textarea {
+					background: var(--bg-tertiary);
+					color: var(--text-primary);
+					border-color: var(--border);
+				}
+
+				.result-container {
+					background: var(--bg-primary);
 				}
 			}
 		</style>
@@ -906,14 +951,6 @@
 								<div class="resource-link-content">
 									<span class="resource-icon">🔎</span>
 									<span>URLScan.io</span>
-								</div>
-							</a>
-						</li>
-						<li>
-							<a href="https://www.antiphish.org/report/" target="_blank" rel="noopener noreferrer external" class="resource-link">
-								<div class="resource-link-content">
-									<span class="resource-icon">🛡️</span>
-									<span>Anti-Phish Report</span>
 								</div>
 							</a>
 						</li>
@@ -1187,7 +1224,7 @@
 					<ul class="resource-list">
 						<li>
 							<a
-								href="https://www.internet-beschwerdestelle.de/en/how-to-submit-your-complaint/e-mail-spam/"
+								href="https://www.internet-beschwerdestelle.de/en/complaint/submit/e-mail-and-spam.html"
 								target="_blank"
 								rel="noopener noreferrer external"
 								class="resource-link"
@@ -1365,10 +1402,18 @@
 								<li>
 									<a href="https://apwg.org/resources" target="_blank" rel="noopener noreferrer external" class="resource-link">
 										<div class="resource-link-content">
-											<span class="resource-icon">🌐</span>
+											<span class="resource-icon" aria-hidden="true">🌐</span>
 											<span>APWG Reporting</span>
 										</div>
 									</a>
+								</li>
+								<li>
+									<a href="https://www.antiphish.org/report/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+										<div class="resource-link-content">
+											<span class="resource-icon" aria-hidden="true">🛡️</span>
+											<span>Anti-Phishing Volunteers (antiphish.org)</span>
+										</div>
+								</a>
 								</li>
 							</ul>
 						</div>
@@ -1417,111 +1462,6 @@
 			</div>
 		</footer>
 
-		<script>
-			document.addEventListener('DOMContentLoaded', function () {
-				const reportForm = document.getElementById('reportStatusForm');
-				const reportIdInput = document.getElementById('reportId');
-				const resultContainer = document.getElementById('reportResult');
-				const errorMessage = document.getElementById('errorMessage');
-
-				reportForm.addEventListener('submit', async function (e) {
-					e.preventDefault();
-					const reportId = reportIdInput.value.trim();
-
-					if (!reportId) {
-						showError('Please enter a Report ID.');
-						return;
-					}
-
-					// Clear previous results and errors
-					clearElement(resultContainer);
-					errorMessage.style.display = 'none';
-					resultContainer.style.display = 'none';
-
-					// Add loading indicator
-					const submitButton = reportForm.querySelector('button');
-					submitButton.disabled = true;
-					submitButton.textContent = 'Searching...';
-
-					try {
-						const response = await fetch(`/api/report/${encodeURIComponent(reportId)}`);
-						const data = await response.json();
-
-						if (response.ok) {
-							displayReport(data);
-						} else {
-							showError(data.error || 'An unknown error occurred.');
-						}
-					} catch (error) {
-						showError('Failed to fetch the report. Please check your network connection.');
-					} finally {
-						// Restore button
-						submitButton.disabled = false;
-						submitButton.textContent = 'Check Status';
-					}
-				});
-
-				function showError(message) {
-					errorMessage.textContent = message;
-					errorMessage.style.display = 'block';
-				}
-
-				function displayReport(report) {
-					clearElement(resultContainer);
-					resultContainer.style.display = 'block';
-
-					const title = document.createElement('h3');
-					title.textContent = `Report Details (ID: ${formatValue(report.id)})`;
-
-					const grid = document.createElement('div');
-					grid.className = 'report-grid';
-
-					appendReportItem(grid, 'Name', report.name);
-					appendReportItem(grid, 'Category', report.category);
-					appendReportItem(grid, 'Source', report.source);
-					appendReportItem(grid, 'URL', report.url, true);
-					appendReportItem(grid, 'Description', report.description || 'N/A', true);
-					appendReportItem(grid, 'Submission Success', report.submission_success ? 'Yes' : 'No');
-
-					if (report.urlscan_uuid) {
-						appendReportItem(grid, 'URLScan UUID', report.urlscan_uuid);
-					}
-					if (report.virustotal_scan_id) {
-						appendReportItem(grid, 'VirusTotal Scan ID', report.virustotal_scan_id);
-					}
-					if (report.cloudflare_scan_uuid) {
-						appendReportItem(grid, 'Cloudflare Scan UUID', report.cloudflare_scan_uuid);
-					}
-					if (report.api_errors) {
-						appendReportItem(grid, 'API Errors', report.api_errors, true);
-					}
-
-					resultContainer.append(title, grid);
-				}
-
-				function appendReportItem(grid, label, value, fullWidth = false) {
-					const item = document.createElement('div');
-					item.className = fullWidth ? 'report-item full-width' : 'report-item';
-
-					const labelNode = document.createElement('strong');
-					labelNode.textContent = `${label}:`;
-					item.append(labelNode, document.createTextNode(formatValue(value)));
-					grid.appendChild(item);
-				}
-
-				function formatValue(value) {
-					if (value === null || value === undefined || value === '') {
-						return 'N/A';
-					}
-					return String(value);
-				}
-
-				function clearElement(element) {
-					while (element.firstChild) {
-						element.firstChild.remove();
-					}
-				}
-			});
-		</script>
+		<script src="assets/report.js" defer></script>
 	</body>
 </html>
