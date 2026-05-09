@@ -41,8 +41,9 @@
 		<!-- Stylesheets -->
 		<link rel="stylesheet" href="assets/styles.css" />
 
-		<!-- Turnstile with onload callback for explicit rendering -->
-		<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback" defer></script>
+		<!-- Scripts -->
+		<script src="assets/scripts.js" defer></script>
+		<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onloadTurnstileCallback" defer></script>
 	</head>
 
 	<body>
@@ -304,7 +305,5 @@
 				</div>
 			</div>
 		</footer>
-
-		<script src="assets/scripts.js" defer></script>
 	</body>
 </html>

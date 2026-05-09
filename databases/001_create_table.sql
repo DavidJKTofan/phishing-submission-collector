@@ -1,8 +1,5 @@
--- Drop the table if it exists (useful for re-deployments)
-DROP TABLE IF EXISTS reports_v2;
-
 -- Create the table for storing user reports
-CREATE TABLE reports_v2 (
+CREATE TABLE IF NOT EXISTS reports_v2 (
     id TEXT PRIMARY KEY,                                                                                -- UUID for each submission
     name TEXT NOT NULL CHECK(length(name) BETWEEN 2 AND 100),                                           -- Name of the report
     category TEXT NOT NULL CHECK(category IN ('Phishing', 'Crypto Scam', 'Malware', 'Spam', 'Other')),  -- Category of the report
@@ -20,6 +17,6 @@ CREATE TABLE reports_v2 (
 );
 
 -- Create indexes for performance
-CREATE INDEX idx_reports_category ON reports_v2(category);
-CREATE INDEX idx_reports_timestamp ON reports_v2(timestamp);
-CREATE INDEX idx_reports_url ON reports_v2(url);
+CREATE INDEX IF NOT EXISTS idx_reports_category ON reports_v2(category);
+CREATE INDEX IF NOT EXISTS idx_reports_timestamp ON reports_v2(timestamp);
+CREATE INDEX IF NOT EXISTS idx_reports_url ON reports_v2(url);

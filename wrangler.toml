@@ -1,7 +1,7 @@
 #:schema node_modules/wrangler/config-schema.json
 name = "phish-submission-collector"
 main = "src/index.js"
-compatibility_date = "2025-11-10"
+compatibility_date = "2026-05-09"
 assets = { directory = "./public", binding = "ASSETS" }
 
 workers_dev = false
@@ -27,3 +27,4 @@ database_id = "8ec44b1e-510c-4f6e-a239-0ba3a7361925"
 # Configuration: https://developers.cloudflare.com/workers/observability/logs/workers-logs/#enable-workers-logs
 [observability]
 enabled = true
+head_sampling_rate = 0.1

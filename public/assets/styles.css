@@ -700,6 +700,40 @@ textarea {
 	text-decoration: underline;
 }
 
+.result-code {
+	display: inline-block;
+	padding: 0.5rem;
+	background: white;
+	border-radius: 8px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	overflow-wrap: anywhere;
+}
+
+.api-error-details {
+	margin-top: 1rem;
+	padding: 1rem;
+	background: #fef3c7;
+	border: 2px solid var(--warning);
+	border-radius: 12px;
+	color: #78350f;
+}
+
+.api-error-details summary {
+	cursor: pointer;
+	font-weight: 600;
+	color: #92400e;
+	user-select: none;
+}
+
+.api-error-details ul {
+	margin-top: 0.75rem;
+	padding-left: 1.5rem;
+}
+
+.api-error-details li {
+	margin: 0.5rem 0;
+}
+
 /* Footer */
 footer {
 	max-width: 900px;
