@@ -16,3 +16,4 @@ DISCORD_APPROVAL_CHANNEL_ID=""
 # Optional public vars (also live in wrangler.jsonc `vars`; .dev.vars wins locally).
 # ALLOWED_ORIGINS="http://localhost:8787"
 # TURNSTILE_EXPECTED_HOSTNAMES="localhost"
+# CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME="0_PHISHING_Hostnames"

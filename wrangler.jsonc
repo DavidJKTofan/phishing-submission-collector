@@ -11,7 +11,8 @@
 	"preview_urls": false,
 	"vars": {
 		"ALLOWED_ORIGINS": "https://report.automatic-demo.com",
-		"TURNSTILE_EXPECTED_HOSTNAMES": "report.automatic-demo.com"
+		"TURNSTILE_EXPECTED_HOSTNAMES": "report.automatic-demo.com",
+		"CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME": "0_PHISHING_Hostnames"
 	},
 	"secrets": {
 		"required": [

@@ -2,13 +2,60 @@
 
 A simple tool built on the [Cloudflare Developer Platform](https://developers.cloudflare.com/products/?product-group=Developer+platform) to collect and analyze phishing submissions using various APIs for enhanced threat detection, reporting, and storage.
 
+## How It Works
+
+The application has two connected flows: public report submission and human approval for adding hostnames to a Cloudflare One Gateway list.
+
+1. A user submits a URL or hostname through `public/index.html`.
+2. The Worker verifies the Turnstile token and normalizes the submission to a hostname, for example `https://Login.Bad.Example/path` becomes `login.bad.example`.
+3. Optional scanner APIs run in parallel: urlscan.io, VirusTotal, IPQualityScore, and Cloudflare URL Scanner.
+4. The report is saved to D1 before any approval action is requested.
+5. The Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Cloudflare Workflow.
+6. The Workflow sends a Discord message with **Approve** and **Deny** buttons.
+7. Discord posts button clicks to `/discord/interactions`. The Worker verifies Discord's request signature and sends a Workflow event.
+8. If denied, expired, or failed, the Workflow only updates D1.
+9. If approved, the Workflow checks the configured Cloudflare One `DOMAIN` list.
+10. If the hostname is already present, the Workflow records `skipped_duplicate`. Otherwise it appends the hostname and records `added`.
+
+```mermaid
+flowchart TD
+    A["User submits URL/hostname"] --> B["Worker validates Turnstile and input"]
+    B --> C["Normalize to hostname"]
+    C --> D["Run optional scanner APIs"]
+    D --> E["Save report to D1"]
+    E --> F["Start Cloudflare Workflow"]
+    F --> G["Send Discord approval message"]
+    G --> H["Wait for approval event"]
+    H -->|Deny or timeout| I["Update D1 only"]
+    H -->|Approve| J["Check Cloudflare One hostname list"]
+    J -->|Already exists| K["Record skipped_duplicate"]
+    J -->|New hostname| L["Append to configured hostname list"]
+    K --> M["Update D1"]
+    L --> M
+```
+
+## Components
+
+| Component | Role |
+|---|---|
+| Cloudflare Workers | Serves static assets, handles `/submit`, `/api/report/:id`, and `/discord/interactions`. |
+| Cloudflare Static Assets | Serves files from `public/`. |
+| Cloudflare Turnstile | Bot protection for public submissions. |
+| Cloudflare D1 | Stores reports, scanner results, approval status, Workflow instance ID, and Cloudflare One list status. |
+| Cloudflare Workflows | Durable human-in-the-loop process that waits for approval and retries external writes. |
+| Discord App/Bot | Posts approval messages and sends signed button interactions back to the Worker. |
+| Cloudflare One Gateway Lists | Stores approved phishing hostnames in the list configured by `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`. |
+| Scanner APIs | Optional enrichment from urlscan.io, VirusTotal, IPQualityScore, and Cloudflare URL Scanner. |
+
 ## Project Structure
 
 ```
 project/
 │
 ├── src/
-│   └── index.ts                # Cloudflare Workers script
+│   ├── index.ts                # Worker routes and Workflow class
+│   ├── approval.ts             # Discord approval and Cloudflare One list logic
+│   └── hostname.ts             # URL/domain normalization and validation
 │
 ├── databases/
 │   ├── 001_create_table.sql    # SQL to set up D1 database
@@ -29,7 +76,7 @@ project/
 └── .dev.vars.example           # Template for local secrets (copy to .dev.vars)
 ```
 
-## APIs
+## Scanner APIs
 
 The following APIs are integrated into this project for phishing analysis and scanning:
 
@@ -74,6 +121,7 @@ These should be pinned to the exact production origin and hostname.
 |---|---|---|
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist for `/submit` and `/api/report/`. | `https://report.example.com` |
 | `TURNSTILE_EXPECTED_HOSTNAMES` | Comma-separated allowlist for the `hostname` returned by Turnstile Siteverify. | `report.example.com` |
+| `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME` | Exact Cloudflare One Gateway `DOMAIN` list name to append approved hostnames to. | `0_PHISHING_Hostnames` |
 
 ### Discord approval flow
 
@@ -86,7 +134,14 @@ The Cloudflare One hostname approval flow uses a Discord app/bot message with na
    ```
 3. Set the Discord secrets above via `wrangler secret put`.
 
-After a report is stored in D1, the Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Workflow. Approval adds the exact normalized hostname to the Cloudflare One `DOMAIN` list named `0_PHISHING_Hostnames`; denial or timeout only updates D1.
+After a report is stored in D1, the Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Workflow. Approval adds the exact normalized hostname to the Cloudflare One `DOMAIN` list configured by `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`; denial or timeout only updates D1.
+
+Discord validates the Interactions Endpoint URL by sending a signed `PING` request. If validation fails:
+
+- Confirm `DISCORD_APPLICATION_PUBLIC_KEY` is the Public Key from the same Discord app.
+- Confirm the latest Worker is deployed.
+- Confirm Cloudflare WAF/Custom Rules do not block `POST /discord/interactions`. If needed, add a narrowly scoped skip rule for this route.
+- Check logs with `npx wrangler tail --config wrangler.jsonc --format=pretty`.
 
 Discord setup details:
 
@@ -104,8 +159,9 @@ The approved hostname is added to a Cloudflare One Zero Trust list, not to WAF c
 
 Required setup:
 
-- Create or use a Zero Trust list named `0_PHISHING_Hostnames`.
+- Create or use a Zero Trust list, for example `0_PHISHING_Hostnames`.
 - The list type must be `DOMAIN`, which Cloudflare One uses for hostnames/domains.
+- Set `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME` in `wrangler.jsonc` to the exact list name.
 - The API token in `CLOUDFLARE_API_TOKEN` needs access to read and edit Zero Trust lists. If Cloudflare URL Scanner is enabled on the form, the same token also needs `Account` > `URL Scanner` > `Edit`.
 
 The Worker finds the list with:
@@ -129,6 +185,13 @@ PATCH /accounts/{account_id}/gateway/lists/{list_id}
 ```
 
 This matches Cloudflare's current **Patch Zero Trust list** API, where `append` adds list items and `remove` removes item values.
+
+Duplicate handling:
+
+- Existing hostnames are detected before the `PATCH` request.
+- Duplicates do not update the Cloudflare One list again.
+- D1 records `cloudflare_list_status = 'skipped_duplicate'`.
+- Workers logs include `cloudflare_one_list_duplicate`.
 
 ## App Security
 
@@ -218,33 +281,49 @@ For schema changes, create new SQL files (e.g., `003_add_new_column.sql`) and ma
 | `GET`  | `/random` | Returns a fresh UUID (utility). |
 | `GET`  | `/*` | Static assets from `./public/` via the `ASSETS` binding. |
 
-## End-to-end approval flow test
+## Testing
+
+### Automated checks
+
+```
+npm run test
+npm run check
+npm run deploy:dry-run
+```
+
+### End-to-end approval flow
 
 Run the full flow against a deployed Worker or a public tunnel. Discord cannot call a private localhost URL.
 
-1. Validate the build:
-   ```
-   npm run test
-   npm run check
-   npm run deploy:dry-run
-   ```
-2. Confirm setup:
+1. Confirm setup:
    - D1 migrations through `004_add_hostname_approval.sql` are applied.
    - Required secrets are set.
    - Discord Interactions Endpoint URL is `https://<worker-hostname>/discord/interactions`.
-   - A Zero Trust `DOMAIN` list exists named `0_PHISHING_Hostnames`.
-3. Submit a fresh hostname through the browser form so Turnstile issues a real token.
-4. Confirm D1 has the saved pending report:
+   - A Zero Trust `DOMAIN` list exists with the exact name configured in `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`.
+2. Submit a fresh hostname through the browser form so Turnstile issues a real token.
+3. Confirm D1 has the saved pending report:
    ```
    npx wrangler d1 execute reports_db --remote --command="SELECT id, normalized_hostname, workflow_instance_id, approval_status, cloudflare_list_status FROM reports_v2 WHERE id = '<REPORT_ID>'"
    ```
-5. Click **Deny** in Discord. Re-run the query and expect `approval_status = 'denied'` and `cloudflare_list_status = 'not_started'`.
-6. Submit a second fresh hostname and click **Approve**. Re-run the query and expect `approval_status = 'approved'` and `cloudflare_list_status = 'added'` or `skipped_duplicate`.
-7. Verify the Cloudflare One list contains the approved hostname:
+4. Click **Deny** in Discord. Re-run the query and expect `approval_status = 'denied'` and `cloudflare_list_status = 'not_started'`.
+5. Submit a second fresh hostname and click **Approve**. Re-run the query and expect `approval_status = 'approved'` and `cloudflare_list_status = 'added'` or `skipped_duplicate`.
+6. Verify the Cloudflare One list contains the approved hostname:
    ```
    curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/gateway/lists?type=DOMAIN"
    curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/gateway/lists/<LIST_ID>/items"
    ```
+7. Watch operational logs:
+   ```
+   npx wrangler tail --config wrangler.jsonc --format=pretty
+   ```
+
+Useful log events:
+
+| Event | Meaning |
+|---|---|
+| `discord_interaction_verification_failed` | Discord signature validation failed; check public key, route, and WAF/Custom Rules. |
+| `cloudflare_one_list_hostname_added` | Hostname was appended to the Gateway list. |
+| `cloudflare_one_list_duplicate` | Hostname already existed; no list write was attempted. |
 
 ## Reporting Entities
 

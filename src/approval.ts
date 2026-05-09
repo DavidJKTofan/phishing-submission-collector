@@ -15,7 +15,6 @@ const DISCORD_RESPONSE_CHANNEL_MESSAGE = 4;
 const DISCORD_RESPONSE_DEFERRED_UPDATE_MESSAGE = 6;
 const DISCORD_RESPONSE_UPDATE_MESSAGE = 7;
 const DISCORD_EPHEMERAL_FLAG = 1 << 6;
-const PHISHING_HOSTNAME_LIST_NAME = '0_PHISHING_Hostnames';
 
 export const APPROVAL_EVENT_TYPE = 'hostname-approval';
 
@@ -56,6 +55,7 @@ type WaitUntilContext = {
 type ApprovalEnv = {
 	CLOUDFLARE_ACCOUNT_ID?: string;
 	CLOUDFLARE_API_TOKEN?: string;
+	CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME?: string;
 	DISCORD_APPLICATION_PUBLIC_KEY?: string;
 	DISCORD_BOT_TOKEN?: string;
 	DISCORD_APPROVAL_CHANNEL_ID?: string;
@@ -242,6 +242,7 @@ export async function addHostnameToCloudflareOneList(
 	const list = await getCloudflareOneHostnameList(env);
 	const existingItems = await fetchCloudflareOneListItems(env, list.id);
 	if (existingItems.some((item) => item.value?.toLowerCase() === hostname)) {
+		console.log(JSON.stringify({ event: 'cloudflare_one_list_duplicate', reportId, listId: list.id, hostname }));
 		return { status: 'skipped_duplicate', error: null };
 	}
 
@@ -262,19 +263,21 @@ export async function addHostnameToCloudflareOneList(
 	const data = (await response.json().catch(() => ({}))) as CloudflareApiResponse<unknown>;
 	if (!response.ok || data.success === false) throw new Error(cloudflareApiError(data, response.status));
 
+	console.log(JSON.stringify({ event: 'cloudflare_one_list_hostname_added', reportId, listId: list.id, hostname }));
 	return { status: 'added', error: null };
 }
 
 async function getCloudflareOneHostnameList(env: ApprovalEnv): Promise<{ id: string; name: string }> {
 	const accountId = requireSecret(env.CLOUDFLARE_ACCOUNT_ID, 'CLOUDFLARE_ACCOUNT_ID');
+	const listName = requireConfig(env.CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME, 'CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME');
 	const response = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/gateway/lists?type=DOMAIN`, {
 		headers: { Authorization: `Bearer ${requireSecret(env.CLOUDFLARE_API_TOKEN, 'CLOUDFLARE_API_TOKEN')}` },
 	});
 	const data = (await response.json().catch(() => ({}))) as CloudflareApiResponse<CloudflareZeroTrustList[]>;
 	if (!response.ok || data.success === false) throw new Error(cloudflareApiError(data, response.status));
 
-	const list = (data.result || []).find((item) => item.name === PHISHING_HOSTNAME_LIST_NAME && item.type === 'DOMAIN');
-	if (!list?.id || !list.name) throw new Error(`Cloudflare One hostname list not found: ${PHISHING_HOSTNAME_LIST_NAME}`);
+	const list = (data.result || []).find((item) => item.name === listName && item.type === 'DOMAIN');
+	if (!list?.id || !list.name) throw new Error(`Cloudflare One hostname list not found: ${listName}`);
 	return { id: list.id, name: list.name };
 }
 
@@ -463,6 +466,12 @@ function jsonResponse(body: unknown, status: number): Response {
 function requireSecret(value: string | undefined, name: string): string {
 	if (!value) throw new Error(`Missing ${name}`);
 	return value;
+}
+
+function requireConfig(value: string | undefined, name: string): string {
+	const trimmed = value?.trim();
+	if (!trimmed) throw new Error(`Missing ${name}`);
+	return trimmed;
 }
 
 function cloudflareApiError(data: CloudflareApiResponse<unknown>, status: number): string {

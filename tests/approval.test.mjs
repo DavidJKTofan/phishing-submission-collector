@@ -180,7 +180,7 @@ test('appends approved hostname to the Cloudflare One DOMAIN list', async () => 
 	const calls = mockFetch((url, init, index) => {
 		if (index === 0) {
 			assert.equal(url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists?type=DOMAIN');
-			return jsonResponse({ success: true, result: [{ id: 'list-1', name: '0_PHISHING_Hostnames', type: 'DOMAIN' }] });
+			return jsonResponse({ success: true, result: [{ id: 'list-1', name: 'Custom_Hostname_List', type: 'DOMAIN' }] });
 		}
 		if (index === 1) {
 			assert.equal(url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists/list-1/items');
@@ -189,7 +189,11 @@ test('appends approved hostname to the Cloudflare One DOMAIN list', async () => 
 		return jsonResponse({ success: true, result: { id: 'list-1' } });
 	});
 
-	const result = await addHostnameToCloudflareOneList(makeCloudflareEnv(), 'report-1', 'login.bad.example');
+	const result = await addHostnameToCloudflareOneList(
+		makeCloudflareEnv({ CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME: 'Custom_Hostname_List' }),
+		'report-1',
+		'login.bad.example'
+	);
 
 	assert.deepEqual(result, { status: 'added', error: null });
 	assert.equal(calls.length, 3);
@@ -206,6 +210,18 @@ test('fails when the phishing hostname list is missing', async () => {
 	await assert.rejects(
 		() => addHostnameToCloudflareOneList(makeCloudflareEnv(), 'report-1', 'login.bad.example'),
 		/Cloudflare One hostname list not found/
+	);
+});
+
+test('fails when the Cloudflare Gateway hostname list name is not configured', async () => {
+	await assert.rejects(
+		() =>
+			addHostnameToCloudflareOneList(
+				makeCloudflareEnv({ CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME: '' }),
+				'report-1',
+				'login.bad.example'
+			),
+		/Missing CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME/
 	);
 });
 
@@ -271,11 +287,13 @@ function makeWorkflowInstance(status, sendEvent) {
 	return instance;
 }
 
-function makeCloudflareEnv() {
+function makeCloudflareEnv(overrides = {}) {
 	return {
 		CLOUDFLARE_ACCOUNT_ID: 'account-1',
 		CLOUDFLARE_API_TOKEN: 'token-1',
+		CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME: '0_PHISHING_Hostnames',
 		PHISHING_HOSTNAME_WORKFLOW: { get: async () => makeWorkflowInstance('waiting') },
+		...overrides,
 	};
 }
 
