@@ -38,6 +38,8 @@ const TURNSTILE_TOKEN_MAX_LENGTH = 2_048;
 const TURNSTILE_ACTION = 'submit-report';
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 const APPROVAL_TIMEOUT = '7 days';
+const DISCORD_APPROVAL_SEND_TIMEOUT = '30 seconds';
+const CLOUDFLARE_LIST_WRITE_TIMEOUT = '1 minute';
 
 const ALLOWED_CATEGORIES = ['Phishing', 'Crypto Scam', 'Malware', 'Spam', 'Other'] as const;
 const ALLOWED_SOURCES = ['Email', 'SMS', 'Social Media', 'Website', 'Other'] as const;
@@ -115,9 +117,23 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 	async run(event: WorkflowEvent<PhishingHostnameWorkflowParams>, step: WorkflowStep): Promise<unknown> {
 		const report = event.payload;
 
-		await step.do('send Discord approval request', { retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' } }, async () => {
-			return sendDiscordApprovalMessage(this.env, report, event.instanceId);
-		});
+		try {
+			await step.do(
+				'send Discord approval request',
+				{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: DISCORD_APPROVAL_SEND_TIMEOUT },
+				async () => sendDiscordApprovalMessage(this.env, report, event.instanceId)
+			);
+		} catch (error) {
+			const message = errorMessage(error);
+			await step.do('record Discord approval request failure', async () => {
+				await updateApprovalDecision(this.env.DB, report.reportId, {
+					approvalStatus: 'workflow_failed',
+					cloudflareListStatus: 'not_started',
+					error: message,
+				});
+			});
+			return { status: 'workflow_failed', reportId: report.reportId, error: message };
+		}
 
 		let approvalEvent: { payload: Readonly<ApprovalEventPayload> };
 		try {
@@ -155,7 +171,7 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 		try {
 			listResult = await step.do(
 				'add hostname to Cloudflare One list',
-				{ retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' } },
+				{ retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' }, timeout: CLOUDFLARE_LIST_WRITE_TIMEOUT },
 				async () => addHostnameToCloudflareOneList(this.env, report.reportId, report.normalizedHostname)
 			);
 		} catch (error) {
@@ -175,7 +191,7 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 }
 
 export default {
-	async fetch(request, env): Promise<Response> {
+	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
 		const cors = buildCorsHeaders(request, env);
 
@@ -216,7 +232,7 @@ export default {
 			if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405);
 
 			try {
-				return await handleDiscordInteraction(request, env);
+				return await handleDiscordInteraction(request, env, ctx);
 			} catch (error) {
 				return handleErrorResponse(error, {});
 			}
@@ -709,14 +725,14 @@ async function callIPQSAPI(submittedUrl: string, env: Env, signal: AbortSignal):
 async function callCloudflareAPI(submittedUrl: string, env: Env, signal: AbortSignal): Promise<ApiResponseData> {
 	try {
 		const response = await fetch(
-			`${CLOUDFLARE_API_BASE}/accounts/${requireSecret(env.CLOUDFLARE_ACCOUNT_ID, 'CLOUDFLARE_ACCOUNT_ID')}/urlscanner/scan`,
+			`${CLOUDFLARE_API_BASE}/accounts/${requireSecret(env.CLOUDFLARE_ACCOUNT_ID, 'CLOUDFLARE_ACCOUNT_ID')}/urlscanner/v2/scan`,
 			{
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 					Authorization: `Bearer ${requireSecret(env.CLOUDFLARE_API_TOKEN, 'CLOUDFLARE_API_TOKEN')}`,
 				},
-				body: JSON.stringify({ url: submittedUrl, visibility: 'unlisted' }),
+				body: JSON.stringify({ url: submittedUrl, visibility: 'Unlisted' }),
 				signal,
 			}
 		);
@@ -724,9 +740,9 @@ async function callCloudflareAPI(submittedUrl: string, env: Env, signal: AbortSi
 			const errorData = (await response.json().catch(() => ({}))) as { errors?: Array<{ message?: string }> };
 			throw new Error(errorData.errors?.[0]?.message || `HTTP ${response.status}`);
 		}
-		const data = (await response.json()) as { result?: { uuid?: string } };
-		if (!data.result?.uuid) throw new Error('Missing UUID in response');
-		return { cloudflare_scan_uuid: data.result.uuid };
+		const data = (await response.json()) as { uuid?: string };
+		if (!data.uuid) throw new Error('Missing UUID in response');
+		return { cloudflare_scan_uuid: data.uuid };
 	} catch (error) {
 		throw new Error(`Cloudflare API: ${errorMessage(error)}`);
 	}

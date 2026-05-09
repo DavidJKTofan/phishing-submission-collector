@@ -78,6 +78,36 @@ test('sends denial event for Discord deny button', async () => {
 	assert.match(body.data.content, /Decision: Denied/);
 });
 
+test('defers Discord button clicks when execution context is available', async () => {
+	const instance = makeWorkflowInstance('waiting');
+	const env = makeDiscordEnv(instance);
+	const waitUntilPromises = [];
+	const calls = mockFetch(() => jsonResponse({}));
+	const response = await handleDiscordInteraction(
+		await signedDiscordRequest({
+			id: 'interaction-3',
+			application_id: 'app-1',
+			token: 'interaction-token',
+			type: 3,
+			data: { custom_id: 'approve:workflow-1' },
+			member: { user: { id: 'user-3', username: 'carol' } },
+			message: { id: 'message-3', content: 'Approval request' },
+		}),
+		env,
+		{ waitUntil: (promise) => waitUntilPromises.push(promise) }
+	);
+
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { type: 6 });
+	assert.equal(waitUntilPromises.length, 1);
+	await Promise.all(waitUntilPromises);
+	assert.equal(instance.events.length, 1);
+	assert.equal(instance.events[0].payload.approved, true);
+	assert.equal(calls[0].url, 'https://discord.com/api/v10/webhooks/app-1/interaction-token/messages/@original');
+	assert.equal(calls[0].init.method, 'PATCH');
+	assert.match(JSON.parse(calls[0].init.body).content, /Decision: Approved/);
+});
+
 test('rejects Discord interactions with invalid signatures', async () => {
 	const env = makeDiscordEnv(makeWorkflowInstance('waiting'));
 	const response = await handleDiscordInteraction(
@@ -117,6 +147,24 @@ test('returns an ephemeral response for duplicate clicks', async () => {
 	assert.equal(body.type, 4);
 	assert.equal(body.data.flags, 64);
 	assert.match(body.data.content, /no longer waiting/);
+});
+
+test('returns an ephemeral response when the approval event cannot be sent', async () => {
+	const env = makeDiscordEnv(
+		makeWorkflowInstance('waiting', async () => {
+			throw new Error('event rejected');
+		})
+	);
+	const response = await handleDiscordInteraction(
+		await signedDiscordRequest({ type: 3, data: { custom_id: 'approve:workflow-1' } }),
+		env
+	);
+
+	const body = await response.json();
+	assert.equal(response.status, 200);
+	assert.equal(body.type, 4);
+	assert.equal(body.data.flags, 64);
+	assert.match(body.data.content, /could not be recorded/);
 });
 
 test('appends approved hostname to the Cloudflare One DOMAIN list', async () => {
@@ -202,11 +250,12 @@ function makeDiscordEnv(instance, get = async () => instance) {
 	};
 }
 
-function makeWorkflowInstance(status) {
+function makeWorkflowInstance(status, sendEvent) {
 	const instance = {
 		events: [],
 		status: async () => ({ status }),
 		sendEvent: async (event) => {
+			if (sendEvent) return sendEvent(event);
 			instance.events.push(event);
 		},
 	};

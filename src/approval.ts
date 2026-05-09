@@ -12,6 +12,7 @@ const DISCORD_INTERACTION_PING = 1;
 const DISCORD_INTERACTION_MESSAGE_COMPONENT = 3;
 const DISCORD_RESPONSE_PONG = 1;
 const DISCORD_RESPONSE_CHANNEL_MESSAGE = 4;
+const DISCORD_RESPONSE_DEFERRED_UPDATE_MESSAGE = 6;
 const DISCORD_RESPONSE_UPDATE_MESSAGE = 7;
 const DISCORD_EPHEMERAL_FLAG = 1 << 6;
 const PHISHING_HOSTNAME_LIST_NAME = '0_PHISHING_Hostnames';
@@ -48,6 +49,10 @@ type ApprovalWorkflowBinding = {
 	get: (instanceId: string) => Promise<ApprovalWorkflowInstance>;
 };
 
+type WaitUntilContext = {
+	waitUntil: (promise: Promise<unknown>) => void;
+};
+
 type ApprovalEnv = {
 	CLOUDFLARE_ACCOUNT_ID?: string;
 	CLOUDFLARE_API_TOKEN?: string;
@@ -59,6 +64,7 @@ type ApprovalEnv = {
 
 type DiscordInteraction = {
 	id?: string;
+	application_id?: string;
 	type?: number;
 	token?: string;
 	data?: {
@@ -74,6 +80,10 @@ type DiscordInteraction = {
 		content?: string;
 	};
 };
+
+type DiscordDecisionResult =
+	| { ok: true; approved: boolean; actorId: string }
+	| { ok: false; message: string };
 
 type DiscordUser = {
 	id?: string;
@@ -114,7 +124,7 @@ class HttpError extends Error {
 	}
 }
 
-export async function handleDiscordInteraction(request: Request, env: ApprovalEnv): Promise<Response> {
+export async function handleDiscordInteraction(request: Request, env: ApprovalEnv, ctx?: WaitUntilContext): Promise<Response> {
 	const body = await readTextBody(request, MAX_BODY_BYTES);
 	const verified = await verifyDiscordRequest(request, body, env);
 	if (!verified) return new Response('invalid request signature', { status: 401, headers: SECURITY_HEADERS });
@@ -134,30 +144,60 @@ export async function handleDiscordInteraction(request: Request, env: ApprovalEn
 		return discordEphemeralResponse('Unknown approval action.');
 	}
 
+	if (ctx) {
+		ctx.waitUntil(handleDiscordDecisionAsync(interaction, env, action, instanceId));
+		return jsonResponse({ type: DISCORD_RESPONSE_DEFERRED_UPDATE_MESSAGE }, 200);
+	}
+
+	const result = await recordDiscordDecision(interaction, env, action, instanceId);
+	if (!result.ok) return discordEphemeralResponse(result.message);
+	return discordUpdateMessageResponse(interaction, result.approved, result.actorId);
+}
+
+async function handleDiscordDecisionAsync(interaction: DiscordInteraction, env: ApprovalEnv, action: string, instanceId: string): Promise<void> {
+	const result = await recordDiscordDecision(interaction, env, action, instanceId);
+	if (result.ok) {
+		await editDiscordInteractionOriginalMessage(interaction, result.approved, result.actorId);
+		return;
+	}
+
+	await sendDiscordInteractionFollowup(interaction, result.message);
+}
+
+async function recordDiscordDecision(
+	interaction: DiscordInteraction,
+	env: ApprovalEnv,
+	action: string,
+	instanceId: string
+): Promise<DiscordDecisionResult> {
 	const actor = getDiscordActor(interaction);
 	let instance: ApprovalWorkflowInstance;
 	try {
 		instance = await env.PHISHING_HOSTNAME_WORKFLOW.get(instanceId);
 		const status = await instance.status();
 		if (status.status !== 'waiting' && status.status !== 'running') {
-			return discordEphemeralResponse('This approval is no longer waiting for a decision.');
+			return { ok: false, message: 'This approval is no longer waiting for a decision.' };
 		}
 	} catch {
-		return discordEphemeralResponse('This approval is no longer waiting for a decision.');
+		return { ok: false, message: 'This approval is no longer waiting for a decision.' };
 	}
 
-	await instance.sendEvent({
-		type: APPROVAL_EVENT_TYPE,
-		payload: {
-			approved: action === 'approve',
-			actorId: actor.id,
-			actorUsername: actor.username,
-			messageId: interaction.message?.id,
-			interactionId: interaction.id || crypto.randomUUID(),
-		},
-	});
+	try {
+		await instance.sendEvent({
+			type: APPROVAL_EVENT_TYPE,
+			payload: {
+				approved: action === 'approve',
+				actorId: actor.id,
+				actorUsername: actor.username,
+				messageId: interaction.message?.id,
+				interactionId: interaction.id || crypto.randomUUID(),
+			},
+		});
+	} catch {
+		return { ok: false, message: 'This approval could not be recorded. Please try again or check the report status.' };
+	}
 
-	return discordUpdateMessageResponse(interaction, action === 'approve', actor.id);
+	return { ok: true, approved: action === 'approve', actorId: actor.id };
 }
 
 export async function sendDiscordApprovalMessage(
@@ -266,21 +306,43 @@ function buildDiscordApprovalComponents(instanceId: string, disabled: boolean): 
 }
 
 function discordUpdateMessageResponse(interaction: DiscordInteraction, approved: boolean, actorId: string): Response {
+	return jsonResponse({ type: DISCORD_RESPONSE_UPDATE_MESSAGE, data: buildDiscordDecisionMessageData(interaction, approved, actorId) }, 200);
+}
+
+function buildDiscordDecisionMessageData(interaction: DiscordInteraction, approved: boolean, actorId: string): Record<string, unknown> {
 	const currentContent = interaction.message?.content || 'Phishing hostname approval';
 	const decision = approved ? 'Approved' : 'Denied';
 	const customId = interaction.data?.custom_id || '';
 	const instanceId = customId.split(':')[1] || '';
-	return jsonResponse(
-		{
-			type: DISCORD_RESPONSE_UPDATE_MESSAGE,
-			data: {
-				content: `${currentContent}\n\nDecision: ${decision} by <@${actorId}>`,
-				allowed_mentions: { parse: [] },
-				components: buildDiscordApprovalComponents(instanceId, true),
-			},
-		},
-		200
-	);
+	return {
+		content: `${currentContent}\n\nDecision: ${decision} by <@${actorId}>`,
+		allowed_mentions: { parse: [] },
+		components: buildDiscordApprovalComponents(instanceId, true),
+	};
+}
+
+async function editDiscordInteractionOriginalMessage(interaction: DiscordInteraction, approved: boolean, actorId: string): Promise<void> {
+	const applicationId = interaction.application_id;
+	const token = interaction.token;
+	if (!applicationId || !token) return;
+
+	await fetch(`${DISCORD_API_BASE}/webhooks/${applicationId}/${token}/messages/@original`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(buildDiscordDecisionMessageData(interaction, approved, actorId)),
+	});
+}
+
+async function sendDiscordInteractionFollowup(interaction: DiscordInteraction, content: string): Promise<void> {
+	const applicationId = interaction.application_id;
+	const token = interaction.token;
+	if (!applicationId || !token) return;
+
+	await fetch(`${DISCORD_API_BASE}/webhooks/${applicationId}/${token}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ content, flags: DISCORD_EPHEMERAL_FLAG, allowed_mentions: { parse: [] } }),
+	});
 }
 
 function discordEphemeralResponse(content: string): Response {

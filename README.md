@@ -51,7 +51,7 @@ URLSCAN_API_KEY="<YOUR_API_KEY_HERE>"
 VIRUSTOTAL_API_KEY="<YOUR_API_KEY_HERE>"
 IPQS_API_KEY="<YOUR_API_KEY_HERE>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
-CLOUDFLARE_API_TOKEN="<LEAST_PRIVILEGE_CLOUDFLARE_API_TOKEN_WITH_ZERO_TRUST_WRITE>"
+CLOUDFLARE_API_TOKEN="<API_TOKEN_WITH_ACCOUNT_URL_SCANNER_EDIT_AND_ZERO_TRUST_LIST_ACCESS>"
 TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"
 DISCORD_APPLICATION_PUBLIC_KEY="<YOUR_DISCORD_APP_PUBLIC_KEY>"
 DISCORD_BOT_TOKEN="<YOUR_DISCORD_BOT_TOKEN>"
@@ -106,7 +106,7 @@ Required setup:
 
 - Create or use a Zero Trust list named `0_PHISHING_Hostnames`.
 - The list type must be `DOMAIN`, which Cloudflare One uses for hostnames/domains.
-- The API token in `CLOUDFLARE_API_TOKEN` needs `Zero Trust Write`.
+- The API token in `CLOUDFLARE_API_TOKEN` needs access to read and edit Zero Trust lists. If Cloudflare URL Scanner is enabled on the form, the same token also needs `Account` > `URL Scanner` > `Edit`.
 
 The Worker finds the list with:
 
@@ -217,6 +217,34 @@ For schema changes, create new SQL files (e.g., `003_add_new_column.sql`) and ma
 | `GET`  | `/api/report/:id` | Look up a stored report by UUID. |
 | `GET`  | `/random` | Returns a fresh UUID (utility). |
 | `GET`  | `/*` | Static assets from `./public/` via the `ASSETS` binding. |
+
+## End-to-end approval flow test
+
+Run the full flow against a deployed Worker or a public tunnel. Discord cannot call a private localhost URL.
+
+1. Validate the build:
+   ```
+   npm run test
+   npm run check
+   npm run deploy:dry-run
+   ```
+2. Confirm setup:
+   - D1 migrations through `004_add_hostname_approval.sql` are applied.
+   - Required secrets are set.
+   - Discord Interactions Endpoint URL is `https://<worker-hostname>/discord/interactions`.
+   - A Zero Trust `DOMAIN` list exists named `0_PHISHING_Hostnames`.
+3. Submit a fresh hostname through the browser form so Turnstile issues a real token.
+4. Confirm D1 has the saved pending report:
+   ```
+   npx wrangler d1 execute reports_db --remote --command="SELECT id, normalized_hostname, workflow_instance_id, approval_status, cloudflare_list_status FROM reports_v2 WHERE id = '<REPORT_ID>'"
+   ```
+5. Click **Deny** in Discord. Re-run the query and expect `approval_status = 'denied'` and `cloudflare_list_status = 'not_started'`.
+6. Submit a second fresh hostname and click **Approve**. Re-run the query and expect `approval_status = 'approved'` and `cloudflare_list_status = 'added'` or `skipped_duplicate`.
+7. Verify the Cloudflare One list contains the approved hostname:
+   ```
+   curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/gateway/lists?type=DOMAIN"
+   curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/gateway/lists/<LIST_ID>/items"
+   ```
 
 ## Reporting Entities
 
