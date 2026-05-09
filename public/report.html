@@ -10,6 +10,7 @@
 		/>
 		<link rel="icon" href="favicon.ico" type="image/x-icon" />
 		<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+		<script src="assets/theme.js"></script>
 		<style>
 			:root {
 				--primary: #2563eb;
@@ -33,6 +34,39 @@
 				--radius-lg: 1rem;
 				--gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 				--gradient-hero: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
+				color-scheme: light;
+			}
+
+			:root[data-theme='dark'] {
+				--bg-primary: #1e293b;
+				--bg-secondary: #0f172a;
+				--bg-tertiary: #0b1220;
+				--text-primary: #e2e8f0;
+				--text-secondary: #cbd5e1;
+				--text-muted: #94a3b8;
+				--border: #334155;
+				--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+				--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+				--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+				--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+				color-scheme: dark;
+			}
+
+			@media (prefers-color-scheme: dark) {
+				:root:not([data-theme]) {
+					--bg-primary: #1e293b;
+					--bg-secondary: #0f172a;
+					--bg-tertiary: #0b1220;
+					--text-primary: #e2e8f0;
+					--text-secondary: #cbd5e1;
+					--text-muted: #94a3b8;
+					--border: #334155;
+					--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+					--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+					--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+					--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+					color-scheme: dark;
+				}
 			}
 
 			* {
@@ -674,96 +708,139 @@
 				}
 			}
 
-			/* Dark mode palette */
-			@media (prefers-color-scheme: dark) {
-				:root {
-					--bg-primary: #1e293b;
-					--bg-secondary: #0f172a;
-					--bg-tertiary: #1e293b;
-					--text-primary: #e2e8f0;
-					--text-secondary: #cbd5e1;
-					--text-muted: #94a3b8;
-					--border: #334155;
-					--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-					--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
-					--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-					--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
-				}
+			/* Dark theme — applied via data-theme attribute (set by theme.js bootstrap). */
+			:root[data-theme='dark'] .resource-link:hover {
+				background: #0b1220;
+			}
 
-				body {
-					background: var(--bg-secondary);
-					color: var(--text-primary);
-				}
+			:root[data-theme='dark'] .info-box {
+				background: rgba(37, 99, 235, 0.1);
+				border-color: rgba(37, 99, 235, 0.3);
+			}
 
-				.quick-start,
-				.resource-card,
-				.email-card {
-					background: var(--bg-primary);
-					border-color: var(--border);
-				}
+			:root[data-theme='dark'] .priority-badge {
+				background: #451a03;
+				color: #fde68a;
+			}
 
-				.step,
-				.resource-link,
-				.report-item {
-					background: var(--bg-tertiary);
-				}
+			:root[data-theme='dark'] .email-card {
+				background: rgba(255, 255, 255, 0.06);
+				color: var(--text-primary);
+			}
 
-				.resource-link:hover {
-					background: #0b1220;
-				}
+			:root[data-theme='dark'] .email-card h3 {
+				border-bottom-color: var(--border);
+			}
 
-				.sub-item {
-					background: var(--bg-primary);
-					color: var(--text-primary);
-					border-color: var(--border);
-				}
+			:root[data-theme='dark'] .alert-error {
+				background: #450a0a;
+				color: #fecaca;
+				border-color: #b91c1c;
+			}
 
-				.info-box {
-					background: rgba(37, 99, 235, 0.1);
-					border-color: rgba(37, 99, 235, 0.3);
-				}
+			:root[data-theme='dark'] input[type='text'],
+			:root[data-theme='dark'] input[type='url'],
+			:root[data-theme='dark'] select,
+			:root[data-theme='dark'] textarea {
+				background: var(--bg-tertiary);
+				color: var(--text-primary);
+				border-color: var(--border);
+			}
 
-				.priority-badge {
-					background: #451a03;
-					color: #fde68a;
-				}
+			/* Theme toggle button */
+			.theme-toggle {
+				position: fixed;
+				top: 1rem;
+				right: 1rem;
+				z-index: 100;
+				width: 44px;
+				height: 44px;
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				border: 1px solid rgba(255, 255, 255, 0.4);
+				border-radius: 999px;
+				background: rgba(255, 255, 255, 0.15);
+				backdrop-filter: blur(10px);
+				-webkit-backdrop-filter: blur(10px);
+				color: white;
+				cursor: pointer;
+				box-shadow: var(--shadow-md);
+				transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+				-webkit-tap-highlight-color: transparent;
+			}
 
-				footer {
-					background: var(--bg-primary);
-					border-top-color: var(--border);
-				}
+			.theme-toggle:hover {
+				transform: translateY(-1px);
+				background: rgba(255, 255, 255, 0.25);
+				border-color: rgba(255, 255, 255, 0.6);
+				box-shadow: var(--shadow-lg);
+			}
 
-				.email-card {
-					background: rgba(255, 255, 255, 0.06);
-					color: var(--text-primary);
-				}
+			.theme-toggle:focus-visible {
+				outline: 2px solid white;
+				outline-offset: 2px;
+			}
 
-				.email-card h3 {
-					border-bottom-color: var(--border);
-				}
+			.theme-toggle:active {
+				transform: translateY(0);
+			}
 
-				.alert-error {
-					background: #450a0a;
-					color: #fecaca;
-					border-color: #b91c1c;
-				}
+			.theme-toggle svg {
+				width: 20px;
+				height: 20px;
+				display: block;
+			}
 
-				input[type='text'],
-				input[type='url'],
-				select,
-				textarea {
-					background: var(--bg-tertiary);
-					color: var(--text-primary);
-					border-color: var(--border);
-				}
+			.theme-toggle .icon-sun {
+				display: none;
+			}
 
-				.result-container {
-					background: var(--bg-primary);
+			.theme-toggle .icon-moon {
+				display: block;
+			}
+
+			:root[data-theme='dark'] .theme-toggle .icon-sun {
+				display: block;
+			}
+
+			:root[data-theme='dark'] .theme-toggle .icon-moon {
+				display: none;
+			}
+
+			@media (max-width: 480px) {
+				.theme-toggle {
+					top: 0.75rem;
+					right: 0.75rem;
 				}
 			}
 		</style>
 	</head>
 	<body>
+		<!-- Theme Toggle -->
+		<button
+			type="button"
+			id="theme-toggle"
+			class="theme-toggle"
+			aria-label="Switch to dark theme"
+			aria-pressed="false"
+			title="Switch to dark theme"
+		>
+			<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+			</svg>
+			<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<circle cx="12" cy="12" r="4"></circle>
+				<path d="M12 2v2"></path>
+				<path d="M12 20v2"></path>
+				<path d="m4.93 4.93 1.41 1.41"></path>
+				<path d="m17.66 17.66 1.41 1.41"></path>
+				<path d="M2 12h2"></path>
+				<path d="M20 12h2"></path>
+				<path d="m6.34 17.66-1.41 1.41"></path>
+				<path d="m19.07 4.93-1.41 1.41"></path>
+			</svg>
+		</button>
 		<header>
 			<div class="container">
 				<h1>🛡️ Report Phishing & Malicious URLs</h1>
@@ -781,7 +858,7 @@
 			</div>
 		</header>
 
-		<div class="container">
+		<main class="container">
 			<section class="quick-start">
 				<h2>How to Report in 4 Simple Steps</h2>
 				<div class="steps">
@@ -1433,7 +1510,7 @@
 				<div id="reportResult" class="result-container" style="display: none"></div>
 				<div id="errorMessage" class="alert alert-error" style="display: none"></div>
 			</section>
-		</div>
+		</main>
 
 		<footer>
 			<div class="container">

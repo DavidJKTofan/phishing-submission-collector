@@ -10,9 +10,37 @@
 	--text-light: #64748b;
 	--bg: #f8fafc;
 	--surface: #ffffff;
+	--surface-alt: #ffffff;
 	--border: #e2e8f0;
 	--shadow: rgba(0, 0, 0, 0.1);
 	--shadow-lg: rgba(0, 0, 0, 0.15);
+	color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+	--text: #e2e8f0;
+	--text-light: #94a3b8;
+	--bg: #0f172a;
+	--surface: #1e293b;
+	--surface-alt: #0b1220;
+	--border: #334155;
+	--shadow: rgba(0, 0, 0, 0.4);
+	--shadow-lg: rgba(0, 0, 0, 0.6);
+	color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme]) {
+		--text: #e2e8f0;
+		--text-light: #94a3b8;
+		--bg: #0f172a;
+		--surface: #1e293b;
+		--surface-alt: #0b1220;
+		--border: #334155;
+		--shadow: rgba(0, 0, 0, 0.4);
+		--shadow-lg: rgba(0, 0, 0, 0.6);
+		color-scheme: dark;
+	}
 }
 
 * {
@@ -282,13 +310,17 @@ body {
 }
 
 .info-link {
-	color: var(--primary);
+	color: var(--primary-dark);
 	text-decoration: none;
-	font-weight: 500;
+	font-weight: 600;
 	transition: color 0.2s;
 	display: inline-flex;
 	align-items: center;
 	gap: 0.25rem;
+}
+
+:root[data-theme='dark'] .info-link {
+	color: var(--primary-light);
 }
 
 .info-link:hover {
@@ -431,8 +463,12 @@ textarea {
 	display: none;
 	margin-top: 0.5rem;
 	font-size: 0.875rem;
-	color: var(--danger);
-	font-weight: 500;
+	color: #b91c1c;
+	font-weight: 600;
+}
+
+:root[data-theme='dark'] .field-error {
+	color: #fca5a5;
 }
 
 /* Advanced Options */
@@ -550,10 +586,14 @@ textarea {
 
 .turnstile-error {
 	display: none;
-	color: var(--danger);
+	color: #b91c1c;
 	font-size: 0.875rem;
 	text-align: center;
-	font-weight: 500;
+	font-weight: 600;
+}
+
+:root[data-theme='dark'] .turnstile-error {
+	color: #fca5a5;
 }
 
 /* Submit Button */
@@ -881,97 +921,130 @@ footer {
 	}
 }
 
-/* Dark mode palette */
-@media (prefers-color-scheme: dark) {
-	:root {
-		--text: #e2e8f0;
-		--text-light: #94a3b8;
-		--bg: #0f172a;
-		--surface: #1e293b;
-		--border: #334155;
-		--shadow: rgba(0, 0, 0, 0.4);
-		--shadow-lg: rgba(0, 0, 0, 0.6);
-	}
+/* Dark theme — applied via data-theme attribute (set by theme.js bootstrap). */
+:root[data-theme='dark'] .hero h1 {
+	background: linear-gradient(135deg, #f1f5f9, var(--primary-light));
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+	background-clip: text;
+}
 
-	body {
-		background: var(--bg);
-		color: var(--text);
-	}
+:root[data-theme='dark'] input[type='text']:focus,
+:root[data-theme='dark'] input[type='url']:focus,
+:root[data-theme='dark'] select:focus,
+:root[data-theme='dark'] textarea:focus {
+	background: var(--surface-alt);
+}
 
-	.hero h1 {
-		background: linear-gradient(135deg, #f1f5f9, var(--primary-light));
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
-		background-clip: text;
-	}
+:root[data-theme='dark'] .advanced-options {
+	background: linear-gradient(135deg, #1e293b, #0f172a);
+}
 
-	input[type='text'],
-	input[type='url'],
-	select,
-	textarea {
-		background: var(--surface);
-		color: var(--text);
-		border-color: var(--border);
-	}
+:root[data-theme='dark'] .alert-error {
+	background: linear-gradient(135deg, #450a0a, #7f1d1d);
+	color: #fecaca;
+	border-color: #b91c1c;
+}
 
-	input[type='text']:focus,
-	input[type='url']:focus,
-	select:focus,
-	textarea:focus {
-		background: #0b1220;
-	}
+:root[data-theme='dark'] .alert-warning {
+	background: linear-gradient(135deg, #451a03, #78350f);
+	color: #fde68a;
+	border-color: #b45309;
+}
 
-	.form-section,
-	.quick-link,
-	.checkbox-label,
-	.advanced-options,
-	.advanced-options summary,
-	.checkbox-custom {
-		background: var(--surface);
-		border-color: var(--border);
-	}
+:root[data-theme='dark'] .result-container {
+	background: linear-gradient(135deg, #022c22, #064e3b);
+	border-color: #047857;
+}
 
-	.advanced-options {
-		background: linear-gradient(135deg, #1e293b, #0f172a);
-	}
+:root[data-theme='dark'] .result-details p {
+	background: var(--surface);
+	border-color: #047857;
+}
 
-	.alert-error {
-		background: linear-gradient(135deg, #450a0a, #7f1d1d);
-		color: #fecaca;
-		border-color: #b91c1c;
-	}
+:root[data-theme='dark'] .result-mono {
+	background: var(--surface-alt);
+	color: var(--text);
+}
 
-	.alert-warning {
-		background: linear-gradient(135deg, #451a03, #78350f);
-		color: #fde68a;
-		border-color: #b45309;
-	}
+:root[data-theme='dark'] .result-api-errors {
+	background: #451a03;
+	border-color: #b45309;
+}
 
-	.result-container {
-		background: linear-gradient(135deg, #022c22, #064e3b);
-		border-color: #047857;
-	}
+:root[data-theme='dark'] .result-api-errors > summary {
+	color: #fde68a;
+}
 
-	.result-details p {
-		background: var(--surface);
-		border-color: #047857;
-	}
+:root[data-theme='dark'] .result-api-errors ul {
+	color: #fcd34d;
+}
 
-	.result-mono {
-		background: #0b1220;
-		color: var(--text);
-	}
+:root[data-theme='dark'] .checkbox-label:hover {
+	background: var(--surface-alt);
+}
 
-	.result-api-errors {
-		background: #451a03;
-		border-color: #b45309;
-	}
+/* Theme toggle button */
+.theme-toggle {
+	position: fixed;
+	top: 1rem;
+	right: 1rem;
+	z-index: 100;
+	width: 44px;
+	height: 44px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--surface);
+	color: var(--text);
+	cursor: pointer;
+	box-shadow: 0 2px 8px var(--shadow);
+	transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+	-webkit-tap-highlight-color: transparent;
+}
 
-	.result-api-errors > summary {
-		color: #fde68a;
-	}
+.theme-toggle:hover {
+	transform: translateY(-1px);
+	border-color: var(--primary);
+	box-shadow: 0 4px 14px var(--shadow-lg);
+}
 
-	.result-api-errors ul {
-		color: #fcd34d;
+.theme-toggle:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+.theme-toggle:active {
+	transform: translateY(0);
+}
+
+.theme-toggle svg {
+	width: 20px;
+	height: 20px;
+	display: block;
+}
+
+.theme-toggle .icon-sun {
+	display: none;
+}
+
+.theme-toggle .icon-moon {
+	display: block;
+}
+
+:root[data-theme='dark'] .theme-toggle .icon-sun {
+	display: block;
+}
+
+:root[data-theme='dark'] .theme-toggle .icon-moon {
+	display: none;
+}
+
+@media (max-width: 480px) {
+	.theme-toggle {
+		top: 0.75rem;
+		right: 0.75rem;
 	}
 }
