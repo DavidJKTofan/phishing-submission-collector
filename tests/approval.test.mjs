@@ -119,6 +119,15 @@ test('rejects Discord interactions with invalid signatures', async () => {
 	assert.equal(await response.text(), 'invalid request signature');
 });
 
+test('returns a server error when Discord public key secret is missing', async () => {
+	const env = makeDiscordEnv(makeWorkflowInstance('waiting'));
+	delete env.DISCORD_APPLICATION_PUBLIC_KEY;
+	const response = await handleDiscordInteraction(await signedDiscordRequest({ type: 1 }), env);
+
+	assert.equal(response.status, 500);
+	assert.equal(await response.text(), 'invalid request signature');
+});
+
 test('returns an ephemeral response for unknown workflow instances', async () => {
 	const env = makeDiscordEnv(null, async () => {
 		throw new Error('not found');

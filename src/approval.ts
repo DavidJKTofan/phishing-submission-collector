@@ -112,6 +112,10 @@ type CloudflareApiResponse<T> = {
 	errors?: Array<{ message?: string }>;
 };
 
+type DiscordVerificationResult =
+	| { ok: true }
+	| { ok: false; reason: string; status: 401 | 500 };
+
 class HttpError extends Error {
 	readonly status: number;
 	readonly code: string;
@@ -126,8 +130,11 @@ class HttpError extends Error {
 
 export async function handleDiscordInteraction(request: Request, env: ApprovalEnv, ctx?: WaitUntilContext): Promise<Response> {
 	const body = await readTextBody(request, MAX_BODY_BYTES);
-	const verified = await verifyDiscordRequest(request, body, env);
-	if (!verified) return new Response('invalid request signature', { status: 401, headers: SECURITY_HEADERS });
+	const verification = await verifyDiscordRequest(request, body, env);
+	if (!verification.ok) {
+		console.error(JSON.stringify({ event: 'discord_interaction_verification_failed', reason: verification.reason }));
+		return new Response('invalid request signature', { status: verification.status, headers: SECURITY_HEADERS });
+	}
 
 	const interaction = JSON.parse(body) as DiscordInteraction;
 	if (interaction.type === DISCORD_INTERACTION_PING) {
@@ -363,18 +370,26 @@ function getDiscordActor(interaction: DiscordInteraction): { id: string; usernam
 	};
 }
 
-async function verifyDiscordRequest(request: Request, body: string, env: ApprovalEnv): Promise<boolean> {
+async function verifyDiscordRequest(request: Request, body: string, env: ApprovalEnv): Promise<DiscordVerificationResult> {
 	const signature = request.headers.get('X-Signature-Ed25519');
 	const timestamp = request.headers.get('X-Signature-Timestamp');
-	if (!signature || !timestamp) return false;
+	if (!signature || !timestamp) return { ok: false, reason: 'missing_signature_headers', status: 401 };
 
 	const timestampSeconds = Number(timestamp);
-	if (!Number.isFinite(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > 300) return false;
+	if (!Number.isFinite(timestampSeconds)) return { ok: false, reason: 'invalid_signature_timestamp', status: 401 };
+	if (Math.abs(Date.now() / 1000 - timestampSeconds) > 300) return { ok: false, reason: 'stale_signature_timestamp', status: 401 };
+	if (!env.DISCORD_APPLICATION_PUBLIC_KEY) return { ok: false, reason: 'missing_discord_public_key_secret', status: 500 };
 
-	const signatureBytes = hexToBytes(signature);
-	const publicKeyBytes = hexToBytes(requireSecret(env.DISCORD_APPLICATION_PUBLIC_KEY, 'DISCORD_APPLICATION_PUBLIC_KEY'));
-	const data = new TextEncoder().encode(timestamp + body);
-	return verifyEd25519Signature(publicKeyBytes, signatureBytes, data);
+	try {
+		const signatureBytes = hexToBytes(signature);
+		const publicKeyBytes = hexToBytes(env.DISCORD_APPLICATION_PUBLIC_KEY);
+		const data = new TextEncoder().encode(timestamp + body);
+		const ok = await verifyEd25519Signature(publicKeyBytes, signatureBytes, data);
+		return ok ? { ok: true } : { ok: false, reason: 'signature_mismatch', status: 401 };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return { ok: false, reason: `verification_error:${message}`, status: 401 };
+	}
 }
 
 async function verifyEd25519Signature(publicKeyBytes: Uint8Array, signatureBytes: Uint8Array, data: Uint8Array): Promise<boolean> {
