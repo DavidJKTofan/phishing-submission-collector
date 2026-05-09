@@ -1,0 +1,243 @@
+import assert from 'node:assert/strict';
+import test, { afterEach, before } from 'node:test';
+
+import { addHostnameToCloudflareOneList, handleDiscordInteraction } from '/private/tmp/phishing-submission-collector-tests/src/approval.js';
+
+const originalFetch = globalThis.fetch;
+let keyPair;
+let publicKeyHex;
+
+before(async () => {
+	keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+	const publicKey = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+	publicKeyHex = toHex(publicKey);
+});
+
+afterEach(() => {
+	globalThis.fetch = originalFetch;
+});
+
+test('answers Discord PING interactions', async () => {
+	const env = makeDiscordEnv(makeWorkflowInstance('waiting'));
+	const response = await handleDiscordInteraction(await signedDiscordRequest({ type: 1 }), env);
+
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { type: 1 });
+});
+
+test('sends approval event for Discord approve button', async () => {
+	const instance = makeWorkflowInstance('waiting');
+	const env = makeDiscordEnv(instance);
+	const response = await handleDiscordInteraction(
+		await signedDiscordRequest({
+			id: 'interaction-1',
+			type: 3,
+			data: { custom_id: 'approve:workflow-1' },
+			member: { user: { id: 'user-1', username: 'alice' } },
+			message: { id: 'message-1', content: 'Approval request' },
+		}),
+		env
+	);
+
+	const body = await response.json();
+	assert.equal(response.status, 200);
+	assert.equal(body.type, 7);
+	assert.equal(instance.events.length, 1);
+	assert.deepEqual(instance.events[0], {
+		type: 'hostname-approval',
+		payload: {
+			approved: true,
+			actorId: 'user-1',
+			actorUsername: 'alice',
+			messageId: 'message-1',
+			interactionId: 'interaction-1',
+		},
+	});
+	assert.match(body.data.content, /Decision: Approved/);
+});
+
+test('sends denial event for Discord deny button', async () => {
+	const instance = makeWorkflowInstance('running');
+	const env = makeDiscordEnv(instance);
+	const response = await handleDiscordInteraction(
+		await signedDiscordRequest({
+			id: 'interaction-2',
+			type: 3,
+			data: { custom_id: 'deny:workflow-1' },
+			user: { id: 'user-2', global_name: 'Bob' },
+			message: { id: 'message-2', content: 'Approval request' },
+		}),
+		env
+	);
+
+	const body = await response.json();
+	assert.equal(response.status, 200);
+	assert.equal(body.type, 7);
+	assert.equal(instance.events[0].payload.approved, false);
+	assert.equal(instance.events[0].payload.actorUsername, 'Bob');
+	assert.match(body.data.content, /Decision: Denied/);
+});
+
+test('rejects Discord interactions with invalid signatures', async () => {
+	const env = makeDiscordEnv(makeWorkflowInstance('waiting'));
+	const response = await handleDiscordInteraction(
+		await signedDiscordRequest({ type: 3, data: { custom_id: 'approve:workflow-1' } }, { signature: '00'.repeat(64) }),
+		env
+	);
+
+	assert.equal(response.status, 401);
+	assert.equal(await response.text(), 'invalid request signature');
+});
+
+test('returns an ephemeral response for unknown workflow instances', async () => {
+	const env = makeDiscordEnv(null, async () => {
+		throw new Error('not found');
+	});
+	const response = await handleDiscordInteraction(
+		await signedDiscordRequest({ type: 3, data: { custom_id: 'approve:missing-workflow' } }),
+		env
+	);
+
+	const body = await response.json();
+	assert.equal(response.status, 200);
+	assert.equal(body.type, 4);
+	assert.equal(body.data.flags, 64);
+	assert.match(body.data.content, /no longer waiting/);
+});
+
+test('returns an ephemeral response for duplicate clicks', async () => {
+	const env = makeDiscordEnv(makeWorkflowInstance('complete'));
+	const response = await handleDiscordInteraction(
+		await signedDiscordRequest({ type: 3, data: { custom_id: 'approve:workflow-1' } }),
+		env
+	);
+
+	const body = await response.json();
+	assert.equal(response.status, 200);
+	assert.equal(body.type, 4);
+	assert.equal(body.data.flags, 64);
+	assert.match(body.data.content, /no longer waiting/);
+});
+
+test('appends approved hostname to the Cloudflare One DOMAIN list', async () => {
+	const calls = mockFetch((url, init, index) => {
+		if (index === 0) {
+			assert.equal(url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists?type=DOMAIN');
+			return jsonResponse({ success: true, result: [{ id: 'list-1', name: '0_PHISHING_Hostnames', type: 'DOMAIN' }] });
+		}
+		if (index === 1) {
+			assert.equal(url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists/list-1/items');
+			return jsonResponse({ success: true, result: [] });
+		}
+		return jsonResponse({ success: true, result: { id: 'list-1' } });
+	});
+
+	const result = await addHostnameToCloudflareOneList(makeCloudflareEnv(), 'report-1', 'login.bad.example');
+
+	assert.deepEqual(result, { status: 'added', error: null });
+	assert.equal(calls.length, 3);
+	assert.equal(calls[2].url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists/list-1');
+	assert.equal(calls[2].init.method, 'PATCH');
+	assert.deepEqual(JSON.parse(calls[2].init.body), {
+		append: [{ value: 'login.bad.example', description: 'Report report-1' }],
+	});
+});
+
+test('fails when the phishing hostname list is missing', async () => {
+	mockFetch(() => jsonResponse({ success: true, result: [{ id: 'list-2', name: 'Other', type: 'DOMAIN' }] }));
+
+	await assert.rejects(
+		() => addHostnameToCloudflareOneList(makeCloudflareEnv(), 'report-1', 'login.bad.example'),
+		/Cloudflare One hostname list not found/
+	);
+});
+
+test('skips duplicate hostnames without patching the list', async () => {
+	const calls = mockFetch((url, init, index) => {
+		if (index === 0) return jsonResponse({ success: true, result: [{ id: 'list-1', name: '0_PHISHING_Hostnames', type: 'DOMAIN' }] });
+		return jsonResponse({ success: true, result: [{ value: 'login.bad.example' }] });
+	});
+
+	const result = await addHostnameToCloudflareOneList(makeCloudflareEnv(), 'report-1', 'login.bad.example');
+
+	assert.deepEqual(result, { status: 'skipped_duplicate', error: null });
+	assert.equal(calls.length, 2);
+});
+
+test('surfaces Cloudflare API failures while appending', async () => {
+	mockFetch((url, init, index) => {
+		if (index === 0) return jsonResponse({ success: true, result: [{ id: 'list-1', name: '0_PHISHING_Hostnames', type: 'DOMAIN' }] });
+		if (index === 1) return jsonResponse({ success: true, result: [] });
+		return jsonResponse({ success: false, errors: [{ message: 'append failed' }] }, 500);
+	});
+
+	await assert.rejects(() => addHostnameToCloudflareOneList(makeCloudflareEnv(), 'report-1', 'login.bad.example'), /append failed/);
+});
+
+async function signedDiscordRequest(payload, overrides = {}) {
+	const body = JSON.stringify(payload);
+	const timestamp = overrides.timestamp || Math.floor(Date.now() / 1000).toString();
+	const data = new TextEncoder().encode(timestamp + body);
+	const signature = overrides.signature || toHex(await crypto.subtle.sign({ name: 'Ed25519' }, keyPair.privateKey, data));
+
+	return new Request('https://example.com/discord/interactions', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Signature-Ed25519': signature,
+			'X-Signature-Timestamp': timestamp,
+		},
+		body,
+	});
+}
+
+function makeDiscordEnv(instance, get = async () => instance) {
+	return {
+		DISCORD_APPLICATION_PUBLIC_KEY: publicKeyHex,
+		CLOUDFLARE_ACCOUNT_ID: 'account-1',
+		CLOUDFLARE_API_TOKEN: 'token-1',
+		DISCORD_BOT_TOKEN: 'discord-token',
+		DISCORD_APPROVAL_CHANNEL_ID: 'channel-1',
+		PHISHING_HOSTNAME_WORKFLOW: { get },
+	};
+}
+
+function makeWorkflowInstance(status) {
+	const instance = {
+		events: [],
+		status: async () => ({ status }),
+		sendEvent: async (event) => {
+			instance.events.push(event);
+		},
+	};
+	return instance;
+}
+
+function makeCloudflareEnv() {
+	return {
+		CLOUDFLARE_ACCOUNT_ID: 'account-1',
+		CLOUDFLARE_API_TOKEN: 'token-1',
+		PHISHING_HOSTNAME_WORKFLOW: { get: async () => makeWorkflowInstance('waiting') },
+	};
+}
+
+function mockFetch(handler) {
+	const calls = [];
+	globalThis.fetch = async (url, init = {}) => {
+		const call = { url: String(url), init };
+		calls.push(call);
+		return handler(call.url, init, calls.length - 1);
+	};
+	return calls;
+}
+
+function jsonResponse(body, status = 200) {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { 'Content-Type': 'application/json' },
+	});
+}
+
+function toHex(buffer) {
+	return Buffer.from(buffer).toString('hex');
+}

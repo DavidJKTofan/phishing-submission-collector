@@ -9,6 +9,9 @@ VIRUSTOTAL_API_KEY=""
 IPQS_API_KEY=""
 CLOUDFLARE_ACCOUNT_ID=""
 CLOUDFLARE_API_TOKEN=""
+DISCORD_APPLICATION_PUBLIC_KEY=""
+DISCORD_BOT_TOKEN=""
+DISCORD_APPROVAL_CHANNEL_ID=""
 
 # Optional public vars (also live in wrangler.jsonc `vars`; .dev.vars wins locally).
 # ALLOWED_ORIGINS="http://localhost:8787"

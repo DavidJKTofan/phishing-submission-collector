@@ -1,3 +1,16 @@
+import { WorkflowEntrypoint } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+
+import {
+	APPROVAL_EVENT_TYPE,
+	addHostnameToCloudflareOneList,
+	formatDiscordActor,
+	handleDiscordInteraction,
+	sendDiscordApprovalMessage,
+} from './approval';
+import type { ApprovalEventPayload, ApprovalStatus, CloudflareListStatus, PhishingHostnameWorkflowParams } from './approval';
+import { HostnameNormalizationError, buildScanUrl, normalizeReportedHostname } from './hostname';
+
 const SECURITY_HEADERS = {
 	'X-Content-Type-Options': 'nosniff',
 	'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -23,6 +36,8 @@ const API_TIMEOUT_MS = 10_000;
 const MAX_URL_LENGTH = 2_048;
 const TURNSTILE_TOKEN_MAX_LENGTH = 2_048;
 const TURNSTILE_ACTION = 'submit-report';
+const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
+const APPROVAL_TIMEOUT = '7 days';
 
 const ALLOWED_CATEGORIES = ['Phishing', 'Crypto Scam', 'Malware', 'Spam', 'Other'] as const;
 const ALLOWED_SOURCES = ['Email', 'SMS', 'Social Media', 'Website', 'Other'] as const;
@@ -40,6 +55,8 @@ type SubmissionData = {
 	category: Category;
 	source: Source;
 	url: string;
+	scanUrl: string;
+	normalizedHostname: string;
 	description: string;
 	skip_urlscan: boolean;
 	skip_virustotal: boolean;
@@ -52,6 +69,9 @@ type SubmissionResult = {
 	success: boolean;
 	id: string;
 	apiErrors: ApiError[];
+	normalized_hostname: string;
+	approval_status: ApprovalStatus;
+	workflow_instance_id?: string;
 	urlscan_uuid?: string;
 	virustotal_scan_id?: string;
 	ipqs_scan?: unknown;
@@ -91,6 +111,69 @@ class HttpError extends Error {
 	}
 }
 
+export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHostnameWorkflowParams> {
+	async run(event: WorkflowEvent<PhishingHostnameWorkflowParams>, step: WorkflowStep): Promise<unknown> {
+		const report = event.payload;
+
+		await step.do('send Discord approval request', { retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' } }, async () => {
+			return sendDiscordApprovalMessage(this.env, report, event.instanceId);
+		});
+
+		let approvalEvent: { payload: Readonly<ApprovalEventPayload> };
+		try {
+			approvalEvent = await step.waitForEvent<ApprovalEventPayload>('wait for hostname approval', {
+				type: APPROVAL_EVENT_TYPE,
+				timeout: APPROVAL_TIMEOUT,
+			});
+		} catch (error) {
+			await step.do('mark approval expired', async () => {
+				await updateApprovalDecision(this.env.DB, report.reportId, {
+					approvalStatus: 'expired',
+					cloudflareListStatus: 'not_started',
+					error: errorMessage(error),
+				});
+			});
+			return { status: 'expired', reportId: report.reportId };
+		}
+
+		const approval = approvalEvent.payload as ApprovalEventPayload;
+		const approvalStatus: ApprovalStatus = approval.approved ? 'approved' : 'denied';
+
+		await step.do('record approval decision', async () => {
+			await updateApprovalDecision(this.env.DB, report.reportId, {
+				approvalStatus,
+				actor: formatDiscordActor(approval),
+				cloudflareListStatus: 'not_started',
+			});
+		});
+
+		if (!approval.approved) {
+			return { status: 'denied', reportId: report.reportId };
+		}
+
+		let listResult: { status: CloudflareListStatus; error: string | null };
+		try {
+			listResult = await step.do(
+				'add hostname to Cloudflare One list',
+				{ retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' } },
+				async () => addHostnameToCloudflareOneList(this.env, report.reportId, report.normalizedHostname)
+			);
+		} catch (error) {
+			const message = errorMessage(error);
+			await step.do('record Cloudflare One list failure', async () => {
+				await updateCloudflareListResult(this.env.DB, report.reportId, 'failed', message);
+			});
+			return { status: 'failed', reportId: report.reportId, hostname: report.normalizedHostname, error: message };
+		}
+
+		await step.do('record Cloudflare One list result', async () => {
+			await updateCloudflareListResult(this.env.DB, report.reportId, listResult.status, listResult.error);
+		});
+
+		return { status: listResult.status, reportId: report.reportId, hostname: report.normalizedHostname };
+	}
+}
+
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
@@ -126,6 +209,16 @@ export default {
 				return jsonResponse(result, 200, cors.headers);
 			} catch (error) {
 				return handleErrorResponse(error, cors.headers);
+			}
+		}
+
+		if (url.pathname === '/discord/interactions') {
+			if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405);
+
+			try {
+				return await handleDiscordInteraction(request, env);
+			} catch (error) {
+				return handleErrorResponse(error, {});
 			}
 		}
 
@@ -225,6 +318,17 @@ async function serveAsset(request: Request, env: Env): Promise<Response> {
 }
 
 async function readJsonBody(request: Request, maxBytes: number): Promise<unknown> {
+	const text = await readTextBody(request, maxBytes);
+	if (!text.trim()) throw new HttpError(400, 'Request body required', 'INVALID_JSON');
+
+	try {
+		return JSON.parse(text) as unknown;
+	} catch {
+		throw new HttpError(400, 'Request body must be valid JSON', 'INVALID_JSON');
+	}
+}
+
+async function readTextBody(request: Request, maxBytes: number): Promise<string> {
 	const contentLength = request.headers.get('Content-Length');
 	if (contentLength) {
 		const declaredLength = Number(contentLength);
@@ -264,14 +368,7 @@ async function readJsonBody(request: Request, maxBytes: number): Promise<unknown
 		offset += chunk.byteLength;
 	}
 
-	const text = new TextDecoder().decode(bodyBytes);
-	if (!text.trim()) throw new HttpError(400, 'Request body required', 'INVALID_JSON');
-
-	try {
-		return JSON.parse(text) as unknown;
-	} catch {
-		throw new HttpError(400, 'Request body must be valid JSON', 'INVALID_JSON');
-	}
+	return new TextDecoder().decode(bodyBytes);
 }
 
 async function validateTurnstile(token: string, ip: string | null, env: Env): Promise<TurnstileValidation> {
@@ -374,7 +471,13 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 		})
 	);
 
-	const result: SubmissionResult = { success: true, id, apiErrors: [] };
+	const result: SubmissionResult = {
+		success: true,
+		id,
+		apiErrors: [],
+		normalized_hostname: formData.normalizedHostname,
+		approval_status: 'pending',
+	};
 
 	const apiCalls: Array<{
 		name: string;
@@ -394,7 +497,7 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 			.map(async (api) => {
 				const startTime = Date.now();
 				try {
-					const data = await callApiWithTimeout((signal) => api.call(formData.url, env, signal), API_TIMEOUT_MS);
+					const data = await callApiWithTimeout((signal) => api.call(formData.scanUrl, env, signal), API_TIMEOUT_MS);
 					const duration = Date.now() - startTime;
 					console.log(JSON.stringify({ event: 'api_success', api: api.name, requestId, duration }));
 					return { success: true as const, name: api.name, resultKey: api.resultKey, data, duration };
@@ -417,6 +520,36 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 	}
 
 	await saveReportToDB(env.DB, id, formData, result);
+
+	try {
+		const instance = await env.PHISHING_HOSTNAME_WORKFLOW.create({
+			id,
+			params: {
+				reportId: id,
+				name: formData.name,
+				category: formData.category,
+				source: formData.source,
+				submittedUrl: formData.url,
+				normalizedHostname: formData.normalizedHostname,
+				description: formData.description,
+			},
+			retention: {
+				successRetention: '30 days',
+				errorRetention: '30 days',
+			},
+		});
+		result.workflow_instance_id = instance.id;
+		await updateWorkflowInstanceId(env.DB, id, instance.id);
+	} catch (error) {
+		const message = errorMessage(error);
+		result.approval_status = 'workflow_failed';
+		result.apiErrors.push({ api: 'Workflow', message });
+		await updateApprovalDecision(env.DB, id, {
+			approvalStatus: 'workflow_failed',
+			cloudflareListStatus: 'not_started',
+			error: message,
+		});
+	}
 
 	console.log(
 		JSON.stringify({
@@ -466,18 +599,19 @@ function validateFormData(data: unknown): SubmissionData {
 		throw new HttpError(400, 'Invalid source', 'INVALID_SOURCE');
 	}
 	if (!url || url.length > MAX_URL_LENGTH) {
-		throw new HttpError(400, 'Invalid URL', 'INVALID_URL');
+		throw new HttpError(400, 'Invalid URL or hostname', 'INVALID_URL');
 	}
 
-	let parsedUrl: URL;
+	let normalizedHostname: string;
 	try {
-		parsedUrl = new URL(url);
-	} catch {
-		throw new HttpError(400, 'Invalid URL format', 'INVALID_URL');
+		normalizedHostname = normalizeReportedHostname(url);
+	} catch (error) {
+		const message = error instanceof HostnameNormalizationError ? error.message : 'Invalid URL or hostname format';
+		throw new HttpError(400, message, 'INVALID_URL');
 	}
-	if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-		throw new HttpError(400, 'URL must use http:// or https://', 'INVALID_URL');
-	}
+
+	const scanUrl = buildScanUrl(url, normalizedHostname);
+
 	if (description.length > 500) {
 		throw new HttpError(400, 'Description must be 500 characters or less', 'INVALID_DESCRIPTION');
 	}
@@ -490,6 +624,8 @@ function validateFormData(data: unknown): SubmissionData {
 		category,
 		source,
 		url,
+		scanUrl,
+		normalizedHostname,
 		description,
 		skip_urlscan: data.skip_urlscan === true,
 		skip_virustotal: data.skip_virustotal === true,
@@ -573,7 +709,7 @@ async function callIPQSAPI(submittedUrl: string, env: Env, signal: AbortSignal):
 async function callCloudflareAPI(submittedUrl: string, env: Env, signal: AbortSignal): Promise<ApiResponseData> {
 	try {
 		const response = await fetch(
-			`https://api.cloudflare.com/client/v4/accounts/${requireSecret(env.CLOUDFLARE_ACCOUNT_ID, 'CLOUDFLARE_ACCOUNT_ID')}/urlscanner/scan`,
+			`${CLOUDFLARE_API_BASE}/accounts/${requireSecret(env.CLOUDFLARE_ACCOUNT_ID, 'CLOUDFLARE_ACCOUNT_ID')}/urlscanner/scan`,
 			{
 				method: 'POST',
 				headers: {
@@ -606,8 +742,9 @@ async function saveReportToDB(db: D1Database, id: string, formData: SubmissionDa
 					`INSERT INTO reports_v2 (
 						id, name, category, source, url, description,
 						urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid,
-						api_errors, submission_success
-					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+						api_errors, submission_success, normalized_hostname, approval_status,
+						cloudflare_list_status
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 				)
 				.bind(
 					id,
@@ -621,7 +758,10 @@ async function saveReportToDB(db: D1Database, id: string, formData: SubmissionDa
 					result.ipqs_scan ? JSON.stringify(result.ipqs_scan) : null,
 					result.cloudflare_scan_uuid || null,
 					apiErrorsJson,
-					result.apiErrors.length === 0
+					result.apiErrors.length === 0,
+					formData.normalizedHostname,
+					result.approval_status,
+					'not_started'
 				)
 				.run()
 		);
@@ -630,6 +770,69 @@ async function saveReportToDB(db: D1Database, id: string, formData: SubmissionDa
 		console.error(JSON.stringify({ event: 'db_save_error', reportId: id, duration: Date.now() - startTime, error: errorMessage(error) }));
 		throw new HttpError(503, 'Report could not be saved. Please try again.', 'DB_SAVE_FAILED');
 	}
+}
+
+async function updateWorkflowInstanceId(db: D1Database, reportId: string, workflowInstanceId: string): Promise<void> {
+	await runD1WriteWithRetry(() =>
+		db
+			.prepare('UPDATE reports_v2 SET workflow_instance_id = ?, last_updated = CURRENT_TIMESTAMP WHERE id = ?')
+			.bind(workflowInstanceId, reportId)
+			.run()
+	);
+}
+
+async function updateApprovalDecision(
+	db: D1Database,
+	reportId: string,
+	decision: {
+		approvalStatus: ApprovalStatus;
+		actor?: string;
+		cloudflareListStatus?: CloudflareListStatus;
+		error?: string;
+	}
+): Promise<void> {
+	await runD1WriteWithRetry(() =>
+		db
+			.prepare(
+				`UPDATE reports_v2
+				 SET approval_status = ?,
+				     approval_actor = COALESCE(?, approval_actor),
+				     approval_decided_at = CASE WHEN ? IN ('approved', 'denied', 'expired') THEN CURRENT_TIMESTAMP ELSE approval_decided_at END,
+				     cloudflare_list_status = COALESCE(?, cloudflare_list_status),
+				     cloudflare_list_error = ?,
+				     last_updated = CURRENT_TIMESTAMP
+				 WHERE id = ?`
+			)
+			.bind(
+				decision.approvalStatus,
+				decision.actor || null,
+				decision.approvalStatus,
+				decision.cloudflareListStatus || null,
+				decision.error || null,
+				reportId
+			)
+			.run()
+	);
+}
+
+async function updateCloudflareListResult(
+	db: D1Database,
+	reportId: string,
+	status: CloudflareListStatus,
+	error: string | null = null
+): Promise<void> {
+	await runD1WriteWithRetry(() =>
+		db
+			.prepare(
+				`UPDATE reports_v2
+				 SET cloudflare_list_status = ?,
+				     cloudflare_list_error = ?,
+				     last_updated = CURRENT_TIMESTAMP
+				 WHERE id = ?`
+			)
+			.bind(status, error, reportId)
+			.run()
+	);
 }
 
 async function runD1WriteWithRetry<T>(operation: () => Promise<T>, maxAttempts = 3): Promise<T> {
@@ -667,7 +870,7 @@ function delay(ms: number): Promise<void> {
 }
 
 const REPORT_COLUMNS =
-	'id, name, category, source, url, description, urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid, api_errors, submission_success, timestamp';
+	'id, name, category, source, url, description, urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid, api_errors, submission_success, timestamp, normalized_hostname, workflow_instance_id, approval_status, approval_actor, approval_decided_at, cloudflare_list_status, cloudflare_list_error';
 
 async function getReportFromDB(db: D1Database, id: string | undefined): Promise<Record<string, unknown> | null> {
 	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

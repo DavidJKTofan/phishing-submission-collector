@@ -13,7 +13,8 @@ project/
 ├── databases/
 │   ├── 001_create_table.sql    # SQL to set up D1 database
 │   ├── 002_seed_data.sql       # Optional: Test data for development
-│   └── 003_drop_unused_indexes.sql
+│   ├── 003_drop_unused_indexes.sql
+│   └── 004_add_hostname_approval.sql
 │
 ├── public/
 │   ├── index.html              # Submission form
@@ -50,8 +51,11 @@ URLSCAN_API_KEY="<YOUR_API_KEY_HERE>"
 VIRUSTOTAL_API_KEY="<YOUR_API_KEY_HERE>"
 IPQS_API_KEY="<YOUR_API_KEY_HERE>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
-CLOUDFLARE_API_TOKEN="<LEAST_PRIVILEGE_CLOUDFLARE_API_TOKEN>"
+CLOUDFLARE_API_TOKEN="<LEAST_PRIVILEGE_CLOUDFLARE_API_TOKEN_WITH_ZERO_TRUST_WRITE>"
 TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"
+DISCORD_APPLICATION_PUBLIC_KEY="<YOUR_DISCORD_APP_PUBLIC_KEY>"
+DISCORD_BOT_TOKEN="<YOUR_DISCORD_BOT_TOKEN>"
+DISCORD_APPROVAL_CHANNEL_ID="<YOUR_DISCORD_CHANNEL_ID>"
 ```
 
 To upload a secret to a deployed Worker:
@@ -71,13 +75,68 @@ These should be pinned to the exact production origin and hostname.
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist for `/submit` and `/api/report/`. | `https://report.example.com` |
 | `TURNSTILE_EXPECTED_HOSTNAMES` | Comma-separated allowlist for the `hostname` returned by Turnstile Siteverify. | `report.example.com` |
 
+### Discord approval flow
+
+The Cloudflare One hostname approval flow uses a Discord app/bot message with native **Approve** and **Deny** buttons.
+
+1. Create a Discord app, add a bot, and invite it to the approval server/channel with permission to send messages.
+2. Set the app's **Interactions Endpoint URL** to:
+   ```
+   https://<your-worker-hostname>/discord/interactions
+   ```
+3. Set the Discord secrets above via `wrangler secret put`.
+
+After a report is stored in D1, the Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Workflow. Approval adds the exact normalized hostname to the Cloudflare One `DOMAIN` list named `0_PHISHING_Hostnames`; denial or timeout only updates D1.
+
+Discord setup details:
+
+| Secret | What it is | Where to get it |
+|---|---|---|
+| `DISCORD_APPLICATION_PUBLIC_KEY` | Public key Discord uses to sign interaction requests. The Worker uses it to verify `/discord/interactions`. | Discord Developer Portal → your application → **General Information** → **Public Key**. |
+| `DISCORD_BOT_TOKEN` | Bot token used by the Workflow to post the approval message with buttons into Discord. Treat it like a password. | Discord Developer Portal → your application → **Bot** → **Reset Token** / **Copy Token**. See the bot token flow in the referenced Discord bot guide. |
+| `DISCORD_APPROVAL_CHANNEL_ID` | Numeric ID of the Discord channel where approval messages should be posted. | In Discord, enable **User Settings** → **Advanced** → **Developer Mode**, then right-click the target channel → **Copy Channel ID**. |
+
+The bot must be invited to the server and must have permission to view the channel and send messages. The Discord app's Interactions Endpoint URL must point to the deployed Worker route `/discord/interactions`, otherwise button clicks will not reach the Workflow.
+
+### Cloudflare One hostname list update
+
+The approved hostname is added to a Cloudflare One Zero Trust list, not to WAF custom lists.
+
+Required setup:
+
+- Create or use a Zero Trust list named `0_PHISHING_Hostnames`.
+- The list type must be `DOMAIN`, which Cloudflare One uses for hostnames/domains.
+- The API token in `CLOUDFLARE_API_TOKEN` needs `Zero Trust Write`.
+
+The Worker finds the list with:
+
+```
+GET /accounts/{account_id}/gateway/lists?type=DOMAIN
+```
+
+Then appends one item with the verified Cloudflare API endpoint:
+
+```
+PATCH /accounts/{account_id}/gateway/lists/{list_id}
+{
+  "append": [
+    {
+      "value": "login.bad.example",
+      "description": "Report <report-id>"
+    }
+  ]
+}
+```
+
+This matches Cloudflare's current **Patch Zero Trust list** API, where `append` adds list items and `remove` removes item values.
+
 ## App Security
 
 - **Cloudflare Turnstile** — required to submit. The sitekey is set as `data-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); the secret is verified server-side with HTTP `response.ok` checking, an idempotency key, a 5 s timeout via `AbortController`, strict action validation (`submit-report`), and hostname validation (`TURNSTILE_EXPECTED_HOSTNAMES`). All five Turnstile callbacks (`callback`, `expired-callback`, `error-callback`, `timeout-callback`, `unsupported-callback`) are wired with retry/reset logic.
 - **CORS** — exact-origin allowlist driven by `ALLOWED_ORIGINS` with a `Vary: Origin` header. Same-origin requests are always allowed.
 - **Security response headers** — every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, and a restrictive `Permissions-Policy`. HTML responses additionally get a `Content-Security-Policy` that allows the Turnstile script/iframe.
 - **Body size guard** — `/submit` rejects declared or streamed bodies over 50,000 bytes (`413`).
-- **Input validation** — server-side via the `URL` constructor + protocol allowlist + length cap; category and source restricted to fixed enums.
+- **Input validation** — server-side URL/domain parsing normalizes the exact hostname, rejects IPs/localhost/wildcards/invalid labels, and keeps category and source restricted to fixed enums.
 - **D1 prepared statements** — all reads/writes use `?` placeholders; reads validate UUIDv4 format before querying; transient D1 write failures are retried with bounded jittered backoff.
 
 ## Accessibility & UX
@@ -136,6 +195,7 @@ Apply follow-up migrations in order when updating an existing database:
 
 ```
 npx wrangler d1 execute reports_db --remote --file ./databases/003_drop_unused_indexes.sql
+npx wrangler d1 execute reports_db --remote --file ./databases/004_add_hostname_approval.sql
 ```
 
 Validate the setup (table is `reports_v2`):
@@ -152,7 +212,8 @@ For schema changes, create new SQL files (e.g., `003_add_new_column.sql`) and ma
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/submit` | Submit a URL with Turnstile verification. Body: JSON. |
+| `POST` | `/submit` | Submit a URL or domain with Turnstile verification. Body: JSON. |
+| `POST` | `/discord/interactions` | Discord app interaction endpoint for approval buttons. |
 | `GET`  | `/api/report/:id` | Look up a stored report by UUID. |
 | `GET`  | `/random` | Returns a fresh UUID (utility). |
 | `GET`  | `/*` | Static assets from `./public/` via the `ASSETS` binding. |
@@ -163,7 +224,7 @@ The report page ([public/report.html](public/report.html)) is the canonical, reg
 
 ## Known Limitations / Future Work
 
-- **`reports_v2.last_updated`** — declared but never updated (no trigger). Either remove or wire up an `UPDATE` trigger.
+- **Workflow approval observability** — approval status is stored in D1, but there is no admin dashboard yet for pending/expired approvals.
 - **`/api/report/:id` is publicly readable by UUID** — acceptable given UUIDv4 entropy, but no auth.
 - **Rate limiting** — deploy should include a Cloudflare Rate Limiting Rule for `/submit`; keep this outside app code when possible.
 

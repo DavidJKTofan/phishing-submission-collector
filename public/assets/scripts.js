@@ -201,11 +201,20 @@ function setupFormValidation() {
 	});
 }
 
-function isValidHttpUrl(value) {
+function isValidUrlOrHostname(value) {
 	if (!value || value.length > 2048) return false;
 	try {
-		const parsed = new URL(value);
-		return ['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.hostname);
+		const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`);
+		const hostname = parsed.hostname.toLowerCase().replace(/\.+$/, '');
+		return (
+			['http:', 'https:'].includes(parsed.protocol) &&
+			hostname.includes('.') &&
+			hostname !== 'localhost' &&
+			!hostname.includes('*') &&
+			!hostname.includes(':') &&
+			hostname.length <= 253 &&
+			hostname.split('.').every((label) => label && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+		);
 	} catch {
 		return false;
 	}
@@ -247,10 +256,10 @@ function validateField(fieldId) {
 
 		case 'url':
 			if (!value) {
-				errorMessage = 'URL is required';
+				errorMessage = 'URL or domain is required';
 				isValid = false;
-			} else if (!isValidHttpUrl(value)) {
-				errorMessage = 'Please enter a valid URL that starts with http:// or https://';
+			} else if (!isValidUrlOrHostname(value)) {
+				errorMessage = 'Please enter a valid URL or hostname';
 				isValid = false;
 			}
 			break;

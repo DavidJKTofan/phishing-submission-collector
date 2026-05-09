@@ -12,6 +12,13 @@ CREATE TABLE IF NOT EXISTS reports_v2 (
     cloudflare_scan_uuid TEXT,                                                                          -- Cloudflare URLScanner UUID
     api_errors TEXT,                                                                                    -- API Errors
     submission_success BOOLEAN DEFAULT TRUE,                                                            -- Submission Success
+    normalized_hostname TEXT,                                                                           -- Hostname extracted from submitted URL/domain
+    workflow_instance_id TEXT,                                                                          -- Cloudflare Workflow instance ID for approval flow
+    approval_status TEXT DEFAULT 'pending' CHECK(approval_status IN ('pending', 'approved', 'denied', 'expired', 'workflow_failed')),
+    approval_actor TEXT,                                                                                -- Discord user that made the approval decision
+    approval_decided_at DATETIME,                                                                       -- Approval decision timestamp in UTC
+    cloudflare_list_status TEXT DEFAULT 'not_started' CHECK(cloudflare_list_status IN ('not_started', 'added', 'skipped_duplicate', 'failed')),
+    cloudflare_list_error TEXT,                                                                         -- Last Cloudflare One List write error, if any
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,                                                       -- Unix timestamp to store the submission time in Coordinated Universal Time (UTC)
     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 );

@@ -20,9 +20,19 @@
 			"VIRUSTOTAL_API_KEY",
 			"IPQS_API_KEY",
 			"CLOUDFLARE_ACCOUNT_ID",
-			"CLOUDFLARE_API_TOKEN"
+			"CLOUDFLARE_API_TOKEN",
+			"DISCORD_APPLICATION_PUBLIC_KEY",
+			"DISCORD_BOT_TOKEN",
+			"DISCORD_APPROVAL_CHANNEL_ID"
 		]
 	},
+	"workflows": [
+		{
+			"name": "phishing-hostname-approval",
+			"binding": "PHISHING_HOSTNAME_WORKFLOW",
+			"class_name": "PhishingHostnameWorkflow"
+		}
+	],
 	"d1_databases": [
 		{
 			"binding": "DB",
