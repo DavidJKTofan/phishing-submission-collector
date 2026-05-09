@@ -31,6 +31,7 @@ The following APIs are integrated into this project for phishing analysis and sc
 
 - [urlscan.io API v1](https://urlscan.io/docs/api/)
 - [VirusTotal API v3](https://docs.virustotal.com/reference/overview)
+- [IPQualityScore Malicious URL Scanner](https://www.ipqualityscore.com/documentation/malicious-url-scanner/overview)
 - [Cloudflare URL Scanner API](https://developers.cloudflare.com/radar/investigate/url-scanner/)
 
 > The user has the option to skip the usage of these APIs via the frontend during submission.
@@ -42,10 +43,11 @@ Environment variables required for this project:
 ```
 URLSCAN_API_KEY="<YOUR_API_KEY_HERE>"
 VIRUSTOTAL_API_KEY="<YOUR_API_KEY_HERE>"
+IPQS_API_KEY="<YOUR_IPQS_API_KEY>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
-CLOUDFLARE_USER_EMAIL="<YOUR_CLOUDFLARE_USER_EMAIL>"
-CLOUDFLARE_API_KEY="<YOUR_CLOUDFLARE_API_KEY>"
+CLOUDFLARE_API_TOKEN="<YOUR_CLOUDFLARE_API_TOKEN>"
 TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"
+TURNSTILE_EXPECTED_HOSTNAME="<YOUR_PUBLIC_HOSTNAME>"
 ```
 
 To configure these [Secrets](https://developers.cloudflare.com/workers/configuration/secrets/) for your Cloudflare Workers environment, use the following command:
@@ -58,7 +60,8 @@ npx wrangler secret put <KEY>
 
 We integrated [Turnstile](https://developers.cloudflare.com/turnstile/).
 
-> Replace the `sitekey` variable in the `script.js` file with your own [Sitekey](https://developers.cloudflare.com/turnstile/get-started/#get-a-sitekey-and-secret-key).
+> Replace the `TURNSTILE_SITE_KEY` variable in the `scripts.js` file with your own [Sitekey](https://developers.cloudflare.com/turnstile/get-started/#get-a-sitekey-and-secret-key).
+> Set `TURNSTILE_EXPECTED_HOSTNAME` to the hostname configured for that widget so server-side validation can reject tokens from unexpected hosts.
 
 ## Local Development & Testing
 
@@ -97,7 +100,7 @@ npx wrangler d1 execute reports_db --remote --file ./databases/002_seed_data.sql
 Validate the setup:
 
 ```
-npx wrangler d1 execute reports_db --remote --command="SELECT * FROM reports"
+npx wrangler d1 execute reports_db --remote --command="SELECT * FROM reports_v2"
 ```
 
 ### Managing Schema Updates
@@ -116,6 +119,7 @@ Below is a non-exhaustive list of organizations where phishing threats and malic
 - [Spamhaus](https://submit.spamhaus.org/submit)
 - [Barracuda Central](https://www.barracudacentral.org/report)
 - [Netcraft](https://report.netcraft.com/report)
+- [Anti-Phish Report](https://www.antiphish.org/report/)
 - [Polyswarm](https://polyswarm.network/)
 - [OPSWAT MetaDefender](https://metadefender.opswat.com/)
 - [CISA Incident Reporting](https://myservices.cisa.gov/irf) *(USA)*
@@ -124,7 +128,7 @@ Below is a non-exhaustive list of organizations where phishing threats and malic
 - [Europol Cybercrime Reporting](https://www.europol.europa.eu/report-a-crime/report-cybercrime-online) *(Europe)*
 - [UK NCSC Report Phishing Scams](https://www.ncsc.gov.uk/collection/phishing-scams) *(UK)*
 - [UK NCSC Report Scam Websites](https://www.ncsc.gov.uk/section/about-this-website/report-scam-website) *(UK)*
-- [Internet Complaints (Germany)](https://www.internet-beschwerdestelle.de/en/complaint/submit/e-mail-and-spam.html) *(Germany)*
+- [Internet Complaints (Germany)](https://www.internet-beschwerdestelle.de/en/how-to-submit-your-complaint/e-mail-spam/) *(Germany)*
 - [IKT-Sicherheitsportal](https://www.onlinesicherheit.gv.at/Themen/Erste-Hilfe/Meldestellen.html) *(Austria)*
 - [Watchlist Internet](https://www.watchlist-internet.at/melde-formular/) *(Austria)*
 

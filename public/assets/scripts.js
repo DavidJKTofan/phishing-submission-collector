@@ -1,13 +1,13 @@
-// State management
+const TURNSTILE_SITE_KEY = '0x4AAAAAAA1Q4zDSRdaSX7mZ';
+const TURNSTILE_TOKEN_TTL_MS = 4 * 60 * 1000;
+
 const state = {
 	turnstileWidget: null,
 	turnstileLoaded: false,
 	isSubmitting: false,
-	retryCount: 0,
-	maxRetries: 3,
+	tokenIssuedAt: 0,
 };
 
-// DOM elements
 const elements = {
 	form: null,
 	submitBtn: null,
@@ -18,36 +18,29 @@ const elements = {
 	turnstileResponse: null,
 };
 
-// Global callback for Turnstile onload
 window.onloadTurnstileCallback = function () {
-	console.log('Turnstile library loaded');
 	state.turnstileLoaded = true;
 	renderTurnstileWidget();
 };
 
-// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', function () {
 	initializeElements();
 	setupFormValidation();
 	setupFormSubmission();
 	setupAnimations();
 
-	// If Turnstile already loaded (unlikely but possible), render it
-	if (window.turnstile && !state.turnstileWidget) {
-		console.log('Turnstile already loaded on DOMContentLoaded');
+	if (window.turnstile) {
+		state.turnstileLoaded = true;
 		renderTurnstileWidget();
 	}
 
-	// Safety check: If Turnstile doesn't load within 10 seconds, show error
 	setTimeout(() => {
 		if (!state.turnstileLoaded) {
-			console.error('Turnstile failed to load within timeout');
 			showTurnstileError('Security verification failed to load. Please refresh the page.');
 		}
 	}, 10000);
 });
 
-// Initialize DOM element references
 function initializeElements() {
 	elements.form = document.getElementById('phishingForm');
 	elements.submitBtn = document.getElementById('submit-btn');
@@ -56,111 +49,79 @@ function initializeElements() {
 	elements.turnstileContainer = document.getElementById('turnstile-container');
 	elements.turnstileError = document.getElementById('turnstile-error');
 	elements.turnstileResponse = document.getElementById('cf-turnstile-response');
+	setSubmitEnabled(false);
 }
 
-// Render Turnstile widget
 function renderTurnstileWidget() {
-	// Check if Turnstile is available
-	if (typeof turnstile === 'undefined' || !window.turnstile) {
-		console.error('Turnstile library not available');
-		showTurnstileError('Security verification not available. Please refresh the page.');
+	if (!elements.turnstileContainer || !window.turnstile) {
 		return;
 	}
 
-	// Remove existing widget if present
 	if (state.turnstileWidget) {
-		try {
-			turnstile.remove(state.turnstileWidget);
-		} catch (e) {
-			console.warn('Error removing Turnstile widget:', e);
-		}
+		resetTurnstile();
+		return;
 	}
 
-	// Clear any previous errors
 	hideTurnstileError();
 
 	try {
-		state.turnstileWidget = turnstile.render('#turnstile-container', {
-			sitekey: '0x4AAAAAAA1Q4zDSRdaSX7mZ',
+		state.turnstileWidget = window.turnstile.render('#turnstile-container', {
+			sitekey: TURNSTILE_SITE_KEY,
 			action: 'submit-report',
 			theme: 'light',
 			size: 'normal',
+			retry: 'auto',
+			'retry-interval': 8000,
 			callback: handleTurnstileSuccess,
 			'expired-callback': handleTurnstileExpired,
 			'error-callback': handleTurnstileError,
 			'timeout-callback': handleTurnstileTimeout,
 			'unsupported-callback': handleTurnstileUnsupported,
 		});
-
-		state.turnstileLoaded = true;
-		state.retryCount = 0;
-		console.log('Turnstile widget rendered successfully');
 	} catch (error) {
 		console.error('Error rendering Turnstile:', error);
-		handleTurnstileError();
+		showTurnstileError('Security verification failed to initialize. Please refresh the page.');
 	}
 }
 
-// Turnstile callback handlers
 function handleTurnstileSuccess(token) {
-	console.log('Turnstile verification successful');
 	elements.turnstileResponse.value = token;
-	elements.submitBtn.disabled = false;
+	state.tokenIssuedAt = Date.now();
 	hideTurnstileError();
 	hideError();
+	setSubmitEnabled(true);
 }
 
 function handleTurnstileExpired() {
-	console.warn('Turnstile token expired');
-	elements.turnstileResponse.value = '';
-	elements.submitBtn.disabled = true;
+	clearTurnstileToken();
 	showTurnstileError('Security verification expired. Please complete it again.');
-
-	// Auto-refresh the widget
-	setTimeout(() => {
-		if (state.retryCount < state.maxRetries) {
-			state.retryCount++;
-			console.log(`Auto-refreshing Turnstile (attempt ${state.retryCount}/${state.maxRetries})`);
-			renderTurnstileWidget();
-		}
-	}, 1000);
+	resetTurnstile();
 }
 
-function handleTurnstileError() {
-	console.error('Turnstile verification error');
-	elements.turnstileResponse.value = '';
-	elements.submitBtn.disabled = true;
-	showTurnstileError('Security verification failed. Retrying...');
-
-	// Retry rendering the widget
-	if (state.retryCount < state.maxRetries) {
-		state.retryCount++;
-		setTimeout(() => {
-			console.log(`Retrying Turnstile render (attempt ${state.retryCount}/${state.maxRetries})`);
-			renderTurnstileWidget();
-		}, 2000);
-	} else {
-		showTurnstileError('Security verification unavailable. Please refresh the page.');
-	}
+function handleTurnstileError(errorCode) {
+	clearTurnstileToken();
+	console.error('Turnstile verification error:', errorCode);
+	showTurnstileError('Security verification failed. Please try again or refresh the page.');
+	return true;
 }
 
 function handleTurnstileTimeout() {
-	console.warn('Turnstile verification timeout');
-	elements.turnstileResponse.value = '';
+	clearTurnstileToken();
 	showTurnstileError('Security verification timed out. Please try again.');
-
-	// Reset and try again
-	setTimeout(() => {
-		renderTurnstileWidget();
-	}, 1500);
+	resetTurnstile();
 }
 
 function handleTurnstileUnsupported() {
-	console.error('Turnstile not supported');
-	showTurnstileError('Security verification not supported in this browser.');
+	clearTurnstileToken();
+	showTurnstileError('Security verification is not supported in this browser.');
 }
 
-// Show/hide Turnstile errors
+function clearTurnstileToken() {
+	elements.turnstileResponse.value = '';
+	state.tokenIssuedAt = 0;
+	setSubmitEnabled(false);
+}
+
 function showTurnstileError(message) {
 	elements.turnstileError.textContent = message;
 	elements.turnstileError.style.display = 'block';
@@ -170,32 +131,26 @@ function hideTurnstileError() {
 	elements.turnstileError.style.display = 'none';
 }
 
-// Reset Turnstile widget
 function resetTurnstile() {
-	if (!window.turnstile) {
-		console.error('Turnstile not available for reset');
+	clearTurnstileToken();
+
+	if (!window.turnstile || !state.turnstileWidget) {
 		return;
 	}
 
-	if (state.turnstileWidget) {
-		try {
-			turnstile.reset(state.turnstileWidget);
-			elements.turnstileResponse.value = '';
-			elements.submitBtn.disabled = true;
-		} catch (error) {
-			console.error('Error resetting Turnstile:', error);
-			// If reset fails, re-render the widget
-			renderTurnstileWidget();
-		}
-	} else {
-		// No widget exists, try to render one
-		renderTurnstileWidget();
+	try {
+		window.turnstile.reset(state.turnstileWidget);
+	} catch (error) {
+		console.error('Error resetting Turnstile:', error);
+		showTurnstileError('Security verification failed to reset. Please refresh the page.');
 	}
 }
 
-// Form validation setup
+function setSubmitEnabled(enabled) {
+	elements.submitBtn.disabled = !enabled || state.isSubmitting;
+}
+
 function setupFormValidation() {
-	// Real-time URL validation
 	const urlInput = document.getElementById('url');
 	urlInput.addEventListener('blur', function () {
 		validateField('url');
@@ -205,7 +160,6 @@ function setupFormValidation() {
 		clearFieldError('url');
 	});
 
-	// Real-time description character count
 	const descriptionInput = document.getElementById('description');
 	const descriptionHint = document.getElementById('description-hint');
 
@@ -227,7 +181,6 @@ function setupFormValidation() {
 		}
 	});
 
-	// Clear error on input for other fields
 	['name', 'category', 'source'].forEach((fieldId) => {
 		const field = document.getElementById(fieldId);
 		field.addEventListener('input', () => clearFieldError(fieldId));
@@ -235,7 +188,6 @@ function setupFormValidation() {
 	});
 }
 
-// Validate individual field
 function validateField(fieldId) {
 	const field = document.getElementById(fieldId);
 	const value = field.value.trim();
@@ -274,12 +226,9 @@ function validateField(fieldId) {
 			if (!value) {
 				errorMessage = 'URL is required';
 				isValid = false;
-			} else {
-				const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/;
-				if (!urlPattern.test(value)) {
-					errorMessage = 'Please enter a valid URL (must start with http:// or https://)';
-					isValid = false;
-				}
+			} else if (!isValidHttpUrl(value)) {
+				errorMessage = 'Please enter a valid URL that starts with http:// or https://';
+				isValid = false;
 			}
 			break;
 	}
@@ -295,7 +244,6 @@ function validateField(fieldId) {
 	return isValid;
 }
 
-// Validate entire form
 function validateForm() {
 	const fields = ['name', 'category', 'source', 'url'];
 	let isValid = true;
@@ -306,7 +254,6 @@ function validateForm() {
 		}
 	});
 
-	// Check description length
 	const description = document.getElementById('description').value;
 	if (description.length > 500) {
 		showFieldError('description', 'Description must be 500 characters or less');
@@ -314,16 +261,27 @@ function validateForm() {
 		isValid = false;
 	}
 
-	// Check Turnstile token
 	if (!elements.turnstileResponse.value) {
 		showError('Please complete the security verification');
+		isValid = false;
+	} else if (Date.now() - state.tokenIssuedAt > TURNSTILE_TOKEN_TTL_MS) {
+		showError('Security verification expired. Please complete it again.');
+		resetTurnstile();
 		isValid = false;
 	}
 
 	return isValid;
 }
 
-// Show/hide field errors
+function isValidHttpUrl(value) {
+	try {
+		const parsed = new URL(value);
+		return ['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.hostname);
+	} catch {
+		return false;
+	}
+}
+
 function showFieldError(fieldId, message) {
 	const errorElement = document.getElementById(`${fieldId}-error`);
 	if (errorElement) {
@@ -340,7 +298,6 @@ function clearFieldError(fieldId) {
 	document.getElementById(fieldId).classList.remove('error');
 }
 
-// Show/hide general messages
 function showError(message) {
 	elements.errorMessage.textContent = message;
 	elements.errorMessage.style.display = 'block';
@@ -360,21 +317,17 @@ function hideWarning() {
 	elements.warningMessage.style.display = 'none';
 }
 
-// Form submission setup
 function setupFormSubmission() {
 	elements.form.addEventListener('submit', async function (e) {
 		e.preventDefault();
 
-		// Prevent double submission
 		if (state.isSubmitting) {
 			return;
 		}
 
-		// Hide previous messages
 		hideError();
 		hideWarning();
 
-		// Validate form
 		if (!validateForm()) {
 			return;
 		}
@@ -383,15 +336,11 @@ function setupFormSubmission() {
 	});
 }
 
-// Submit form to API
 async function submitForm() {
 	state.isSubmitting = true;
-
-	// Update button state
-	elements.submitBtn.disabled = true;
 	elements.submitBtn.classList.add('loading');
+	setSubmitEnabled(false);
 
-	// Collect form data
 	const formData = {
 		name: document.getElementById('name').value.trim(),
 		category: document.getElementById('category').value,
@@ -417,134 +366,120 @@ async function submitForm() {
 		const data = await response.json();
 
 		if (response.ok) {
-			// Success - show results
 			handleSubmissionSuccess(data);
 		} else {
-			// Error response from server
 			handleSubmissionError(data);
 		}
 	} catch (error) {
 		console.error('Submission error:', error);
 		showError('Network error. Please check your connection and try again.');
 	} finally {
-		// Reset button state
 		state.isSubmitting = false;
 		elements.submitBtn.classList.remove('loading');
-		elements.submitBtn.disabled = false;
+		setSubmitEnabled(Boolean(elements.turnstileResponse.value));
 	}
 }
 
-// Handle successful submission
 function handleSubmissionSuccess(data) {
-	// Clear form
 	elements.form.reset();
-
-	// Reset Turnstile
 	resetTurnstile();
 
-	// Remove existing result if present
 	const existingResult = document.querySelector('.result-container');
 	if (existingResult) {
 		existingResult.remove();
 	}
 
-	// Create success result
-	const resultContainer = document.createElement('div');
-	resultContainer.className = 'result-container';
+	const resultContainer = createElement('div', { className: 'result-container' });
+	resultContainer.appendChild(createElement('h2', { text: 'Submission Successful' }));
 
-	let resultHTML = `
-		<h2>✅ Submission Successful!</h2>
-		<div class="result-details">
-			<p>
-				<strong>Report ID</strong>
-				<span style="font-family: monospace; background: white; padding: 0.5rem; border-radius: 8px; display: inline-block;">${data.id}</span>
-			</p>
-	`;
+	const details = createElement('div', { className: 'result-details' });
+	const reportIdRow = createResultRow('Report ID');
+	const code = createElement('span', { className: 'result-code', text: data.id || 'Unknown' });
+	reportIdRow.appendChild(code);
+	details.appendChild(reportIdRow);
 
-	// Add API results if available
-	const apiResults = [];
-
-	if (data.urlscan_uuid) {
-		apiResults.push({
+	const apiResults = [
+		{
+			value: data.urlscan_uuid,
 			name: 'URLScan.io Analysis',
-			url: `https://urlscan.io/result/${data.urlscan_uuid}/`,
-			text: 'View detailed scan results →',
-		});
-	}
-
-	if (data.virustotal_scan_id) {
-		apiResults.push({
+			url: (id) => `https://urlscan.io/result/${encodeURIComponent(id)}/`,
+			text: 'View detailed scan results',
+		},
+		{
+			value: data.virustotal_scan_id,
 			name: 'VirusTotal Scan',
-			url: `https://www.virustotal.com/gui/url/${data.virustotal_scan_id}`,
-			text: 'View malware analysis →',
-		});
-	}
-
-	if (data.cloudflare_scan_uuid) {
-		apiResults.push({
+			url: (id) => `https://www.virustotal.com/gui/url/${encodeURIComponent(id)}`,
+			text: 'View malware analysis',
+		},
+		{
+			value: data.cloudflare_scan_uuid,
 			name: 'Cloudflare Radar Scan',
-			url: `https://radar.cloudflare.com/scan/${data.cloudflare_scan_uuid}/summary`,
-			text: 'View security report →',
-		});
-	}
+			url: (id) => `https://radar.cloudflare.com/scan/${encodeURIComponent(id)}/summary`,
+			text: 'View security report',
+		},
+	];
 
-	// Display API results
 	apiResults.forEach((result) => {
-		resultHTML += `
-			<p>
-				<strong>${result.name}</strong>
-				<a href="${result.url}" target="_blank" rel="nofollow noreferrer external">
-					${result.text}
-				</a>
-			</p>
-		`;
+		if (!result.value) {
+			return;
+		}
+
+		const row = createResultRow(result.name);
+		const link = createElement('a', {
+			text: result.text,
+			attrs: {
+				href: result.url(result.value),
+				target: '_blank',
+				rel: 'nofollow noopener noreferrer external',
+			},
+		});
+		row.appendChild(link);
+		details.appendChild(row);
 	});
 
-	// Show API errors if any occurred
-	if (data.apiErrors && data.apiErrors.length > 0) {
-		resultHTML += `
-			<details style="margin-top: 1rem; padding: 1rem; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 12px;">
-				<summary style="cursor: pointer; font-weight: 600; color: #92400e; user-select: none;">
-					⚠️ Some API calls had issues (${data.apiErrors.length})
-				</summary>
-				<ul style="margin-top: 0.75rem; padding-left: 1.5rem; font-size: 0.9rem; color: #78350f;">
-					${data.apiErrors
-						.map(
-							(error) => `
-						<li style="margin: 0.5rem 0;"><strong>${error.api}:</strong> ${error.message}</li>
-					`
-						)
-						.join('')}
-				</ul>
-			</details>
-		`;
+	if (Array.isArray(data.apiErrors) && data.apiErrors.length > 0) {
+		const errorDetails = createElement('details', { className: 'api-error-details' });
+		errorDetails.appendChild(createElement('summary', { text: `Some API calls had issues (${data.apiErrors.length})` }));
+
+		const list = createElement('ul');
+		data.apiErrors.forEach((error) => {
+			const item = createElement('li');
+			item.appendChild(createElement('strong', { text: `${error.api || 'API'}: ` }));
+			item.appendChild(document.createTextNode(error.message || 'Unknown error'));
+			list.appendChild(item);
+		});
+		errorDetails.appendChild(list);
+		details.appendChild(errorDetails);
 	}
 
-	resultHTML += `</div>`;
-	resultContainer.innerHTML = resultHTML;
-
-	// Insert result after form
+	resultContainer.appendChild(details);
 	elements.form.parentNode.insertBefore(resultContainer, elements.form.nextSibling);
 
-	// Scroll to result
 	setTimeout(() => {
 		resultContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	}, 100);
 }
 
-// Handle submission errors
+function createResultRow(label) {
+	const row = createElement('p');
+	row.appendChild(createElement('strong', { text: label }));
+	return row;
+}
+
 function handleSubmissionError(data) {
 	const errorMsg = data.error || 'Submission failed. Please try again.';
 	showError(errorMsg);
 
-	// If Turnstile error, reset it
 	if (data.code === 'INVALID_TURNSTILE' || errorMsg.toLowerCase().includes('turnstile')) {
 		resetTurnstile();
 	}
 }
 
-// Setup animations for form elements
 function setupAnimations() {
+	if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+		return;
+	}
+
 	const observer = new IntersectionObserver(
 		(entries) => {
 			entries.forEach((entry, index) => {
@@ -560,7 +495,6 @@ function setupAnimations() {
 		{ threshold: 0.1 }
 	);
 
-	// Animate form groups and quick links
 	document.querySelectorAll('.form-group, .quick-link').forEach((el, index) => {
 		el.style.opacity = '0';
 		el.style.transform = 'translateY(20px)';
@@ -570,18 +504,28 @@ function setupAnimations() {
 	});
 }
 
-// Handle page visibility changes - refresh Turnstile if needed
 document.addEventListener('visibilitychange', function () {
-	if (!document.hidden && state.turnstileLoaded && window.turnstile) {
-		// Check if token is still valid when user returns to page
-		if (!elements.turnstileResponse.value) {
-			console.log('Page visible again, checking Turnstile status');
-			// Widget might have expired, try to reset it
-			setTimeout(() => {
-				if (!elements.turnstileResponse.value) {
-					resetTurnstile();
-				}
-			}, 1000);
-		}
+	if (!document.hidden && elements.turnstileResponse?.value && Date.now() - state.tokenIssuedAt > TURNSTILE_TOKEN_TTL_MS) {
+		resetTurnstile();
 	}
 });
+
+function createElement(tagName, options = {}) {
+	const element = document.createElement(tagName);
+
+	if (options.className) {
+		element.className = options.className;
+	}
+
+	if (options.text !== undefined) {
+		element.textContent = options.text;
+	}
+
+	if (options.attrs) {
+		for (const [name, value] of Object.entries(options.attrs)) {
+			element.setAttribute(name, value);
+		}
+	}
+
+	return element;
+}

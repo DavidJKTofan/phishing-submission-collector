@@ -42,8 +42,9 @@
 		<link rel="preload" href="assets/styles.css" as="style" onload="this.rel='stylesheet'" />
 		<noscript><link rel="stylesheet" href="assets/styles.css" /></noscript>
 
-		<!-- Turnstile with onload callback for explicit rendering -->
-		<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback" defer></script>
+		<!-- Scripts -->
+		<script src="assets/scripts.js" defer></script>
+		<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onloadTurnstileCallback" defer></script>
 	</head>
 
 	<body>
@@ -138,7 +139,7 @@
 					<h2 class="section-title">Submit Suspicious URL</h2>
 					<p class="form-description">
 						Let's analyze URLs using multiple security APIs.
-						<a href="report.html" class="info-link">View detailed instructions on reporting phishing & malicious URLs</a>
+						<a href="/report" class="info-link">View detailed instructions on reporting phishing & malicious URLs</a>
 					</p>
 				</div>
 
@@ -304,7 +305,5 @@
 				</div>
 			</div>
 		</footer>
-
-		<script src="assets/scripts.js" defer></script>
 	</body>
 </html>

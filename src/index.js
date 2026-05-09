@@ -1,42 +1,34 @@
+const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
+const SECURITY_HEADERS = {
+	'Content-Security-Policy':
+		"default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://report.automatic-demo.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'",
+	'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+	'Referrer-Policy': 'strict-origin-when-cross-origin',
+	'X-Content-Type-Options': 'nosniff',
+};
+const TURNSTILE_EXPECTED_ACTION = 'submit-report';
+const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
 export default {
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 
-		// CORS headers for development
-		const corsHeaders = {
-			'Access-Control-Allow-Origin': '*',
-			'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-			'Access-Control-Allow-Headers': 'Content-Type',
-		};
-
-		// Handle OPTIONS request for CORS
 		if (request.method === 'OPTIONS') {
-			return new Response(null, {
-				status: 204,
-				headers: corsHeaders,
-			});
+			return withSecurityHeaders(new Response(null, { status: 204, headers: { Allow: 'GET, POST, OPTIONS' } }));
 		}
 
 		switch (url.pathname) {
 			case '/submit': {
 				if (request.method !== 'POST') {
-					return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-						status: 405,
-						headers: { 'Content-Type': 'application/json', ...corsHeaders },
-					});
+					return jsonResponse({ error: 'Method not allowed' }, 405, { Allow: 'POST' });
 				}
 
-				if (request.headers.get('Content-Type') !== 'application/json') {
-					return new Response(JSON.stringify({ error: 'Content-Type must be application/json' }), {
-						status: 400,
-						headers: { 'Content-Type': 'application/json', ...corsHeaders },
-					});
+				if (!isJsonRequest(request)) {
+					return jsonResponse({ error: 'Content-Type must be application/json' }, 415);
 				}
 
 				try {
 					const submittedData = await request.json();
-
-					// Validate Turnstile token
 					const turnstileValid = await validateTurnstile(
 						submittedData['cf-turnstile-response'],
 						request.headers.get('CF-Connecting-IP'),
@@ -45,57 +37,37 @@ export default {
 
 					if (!turnstileValid.success) {
 						console.error('Turnstile validation failed:', turnstileValid);
-						return new Response(
-							JSON.stringify({
-								error: 'Invalid security verification',
-								details: turnstileValid,
-								code: 'INVALID_TURNSTILE',
-							}),
+						return jsonResponse(
 							{
-								status: 400,
-								headers: { 'Content-Type': 'application/json', ...corsHeaders },
-							}
+								error: 'Invalid security verification',
+								code: 'INVALID_TURNSTILE',
+							},
+							400
 						);
 					}
 
 					console.log('Turnstile validation successful');
-
-					// Process submission
 					const result = await handleSubmission(submittedData, env);
-
-					return new Response(JSON.stringify(result), {
-						status: 200,
-						headers: { 'Content-Type': 'application/json', ...corsHeaders },
-					});
+					return jsonResponse(result);
 				} catch (error) {
 					console.error('Error processing submission:', error);
-					return new Response(
-						JSON.stringify({
-							error: error.message || 'Internal server error',
-							code: error.code || 'INTERNAL_ERROR',
-						}),
+					return jsonResponse(
 						{
-							status: error.status || 500,
-							headers: { 'Content-Type': 'application/json', ...corsHeaders },
-						}
+							error: error.status ? error.message : 'Internal server error',
+							code: error.code || 'INTERNAL_ERROR',
+						},
+						error.status || 500
 					);
 				}
 			}
 
 			case '/random': {
-				return new Response(crypto.randomUUID(), {
-					status: 200,
-					headers: { 'Content-Type': 'text/plain', ...corsHeaders },
-				});
+				return textResponse(crypto.randomUUID());
 			}
 
-			// New endpoint to get a report by ID
 			case url.pathname.startsWith('/api/report/') ? url.pathname : '': {
 				if (request.method !== 'GET') {
-					return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-						status: 405,
-						headers: { 'Content-Type': 'application/json', ...corsHeaders },
-					});
+					return jsonResponse({ error: 'Method not allowed' }, 405, { Allow: 'GET' });
 				}
 
 				try {
@@ -103,100 +75,158 @@ export default {
 					const report = await getReportFromDB(env.DB, id);
 
 					if (!report) {
-						return new Response(JSON.stringify({ error: 'Report not found' }), {
-							status: 404,
-							headers: { 'Content-Type': 'application/json', ...corsHeaders },
-						});
+						return jsonResponse({ error: 'Report not found' }, 404);
 					}
 
-					return new Response(JSON.stringify(report), {
-						status: 200,
-						headers: { 'Content-Type': 'application/json', ...corsHeaders },
-					});
+					return jsonResponse(report);
 				} catch (error) {
 					console.error('Error fetching report:', error);
 					if (error.message === 'Invalid report ID format') {
-						return new Response(JSON.stringify({ error: 'Invalid Report ID format' }), {
-							status: 400,
-							headers: { 'Content-Type': 'application/json', ...corsHeaders },
-						});
+						return jsonResponse({ error: 'Invalid Report ID format' }, 400);
 					}
-					return new Response(JSON.stringify({ error: 'Internal server error' }), {
-						status: 500,
-						headers: { 'Content-Type': 'application/json', ...corsHeaders },
-					});
+					return jsonResponse({ error: 'Internal server error' }, 500);
 				}
 			}
 
 			default: {
-				// Return asset from KV store
-				return env.ASSETS.fetch(request);
+				return withSecurityHeaders(await env.ASSETS.fetch(request));
 			}
 		}
 	},
 };
 
-// Validate Turnstile token
+function withSecurityHeaders(response) {
+	const headers = new Headers(response.headers);
+	for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+		headers.set(key, value);
+	}
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+}
+
+function jsonResponse(body, status = 200, headers = {}) {
+	return withSecurityHeaders(
+		new Response(JSON.stringify(body), {
+			status,
+			headers: { ...JSON_HEADERS, ...headers },
+		})
+	);
+}
+
+function textResponse(body, status = 200, headers = {}) {
+	return withSecurityHeaders(
+		new Response(body, {
+			status,
+			headers: { 'Content-Type': 'text/plain; charset=utf-8', ...headers },
+		})
+	);
+}
+
+function isJsonRequest(request) {
+	const contentType = request.headers.get('Content-Type') || '';
+	return contentType.toLowerCase().split(';')[0].trim() === 'application/json';
+}
+
 async function validateTurnstile(token, ip, env) {
-	if (!token) {
-		console.error('Turnstile validation failed: Missing token');
+	if (!token || typeof token !== 'string') {
 		return { success: false, error: 'Missing token' };
 	}
 
-	console.log('Attempting Turnstile verification');
-
-	try {
-		const turnstileFormData = new FormData();
-		turnstileFormData.append('secret', env.TURNSTILE_SECRET_KEY);
-		turnstileFormData.append('response', token);
-
-		if (ip) {
-			turnstileFormData.append('remoteip', ip);
-		}
-
-		const idempotencyKey = crypto.randomUUID();
-		turnstileFormData.append('idempotency_key', idempotencyKey);
-
-		console.log('Sending Turnstile verification request');
-		const turnstileResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-			method: 'POST',
-			body: turnstileFormData,
-		});
-
-		const outcome = await turnstileResponse.json();
-
-		console.log('Turnstile verification response:', {
-			success: outcome.success,
-			timestamp: new Date().toISOString(),
-			errorCodes: outcome['error-codes'] || [],
-		});
-
-		return {
-			success: outcome.success,
-			errorCodes: outcome['error-codes'] || [],
-			timestamp: outcome.challenge_ts,
-			hostname: outcome.hostname,
-		};
-	} catch (error) {
-		console.error('Turnstile verification error:', error);
-		return { success: false, error: error.message };
+	if (token.length > 2048) {
+		return { success: false, error: 'Invalid token format' };
 	}
+
+	if (!env.TURNSTILE_SECRET_KEY || !env.TURNSTILE_EXPECTED_HOSTNAME) {
+		return { success: false, error: 'Missing Turnstile configuration' };
+	}
+
+	const idempotencyKey = crypto.randomUUID();
+	const outcome = await verifyTurnstileWithRetry(token, ip, env.TURNSTILE_SECRET_KEY, idempotencyKey);
+
+	console.log('Turnstile verification response:', {
+		success: outcome.success,
+		errorCodes: outcome['error-codes'] || [],
+		action: outcome.action,
+		hostname: outcome.hostname,
+		timestamp: new Date().toISOString(),
+	});
+
+	if (!outcome.success) {
+		return {
+			success: false,
+			errorCodes: outcome['error-codes'] || [],
+		};
+	}
+
+	if (outcome.action !== TURNSTILE_EXPECTED_ACTION) {
+		return { success: false, error: 'Action mismatch' };
+	}
+
+	if (outcome.hostname !== env.TURNSTILE_EXPECTED_HOSTNAME) {
+		return { success: false, error: 'Hostname mismatch' };
+	}
+
+	return {
+		success: true,
+		action: outcome.action,
+		hostname: outcome.hostname,
+		timestamp: outcome.challenge_ts,
+	};
 }
 
-// Handle form submission
-async function handleSubmission(formData, env) {
-	// Validate form data
-	validateFormData(formData);
+async function verifyTurnstileWithRetry(token, ip, secret, idempotencyKey, maxRetries = 2) {
+	let lastOutcome = { success: false, 'error-codes': ['internal-error'] };
 
+	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		const formData = new FormData();
+		formData.append('secret', secret);
+		formData.append('response', token);
+		formData.append('idempotency_key', idempotencyKey);
+
+		if (ip) {
+			formData.append('remoteip', ip);
+		}
+
+		try {
+			const response = await fetchWithTimeout(
+				TURNSTILE_VERIFY_URL,
+				{
+					method: 'POST',
+					body: formData,
+				},
+				5000
+			);
+			lastOutcome = await response.json();
+
+			if (response.ok) {
+				return lastOutcome;
+			}
+		} catch (error) {
+			lastOutcome = { success: false, 'error-codes': ['internal-error'], error: error.message };
+		}
+
+		if (attempt < maxRetries) {
+			await delay(200 * attempt);
+		}
+	}
+
+	return lastOutcome;
+}
+
+async function handleSubmission(formData, env) {
+	const validatedData = validateFormData(formData);
 	const id = crypto.randomUUID();
 	const requestId = crypto.randomUUID();
 
 	console.log('Starting submission process:', {
 		reportId: id,
-		requestId: requestId,
+		requestId,
 		timestamp: new Date().toISOString(),
-		category: formData.category,
-		source: formData.source,
+		category: validatedData.category,
+		source: validatedData.source,
 	});
 
 	const result = {
@@ -205,47 +235,43 @@ async function handleSubmission(formData, env) {
 		apiErrors: [],
 	};
 
-	// Define API calls with configurations
 	const apiCalls = [
 		{
 			name: 'URLScan',
-			skip: formData.skip_urlscan,
-			call: () => callUrlScanAPI(formData.url, env),
+			skip: validatedData.skip_urlscan,
+			call: (signal) => callUrlScanAPI(validatedData.url, env, signal),
 			resultKey: 'urlscan_uuid',
 			timeout: 10000,
 		},
 		{
 			name: 'VirusTotal',
-			skip: formData.skip_virustotal,
-			call: () => callVirusTotalAPI(formData.url, env),
+			skip: validatedData.skip_virustotal,
+			call: (signal) => callVirusTotalAPI(validatedData.url, env, signal),
 			resultKey: 'virustotal_scan_id',
 			timeout: 10000,
 		},
 		{
 			name: 'IPQualityScore',
-			skip: formData.skip_ipqualityscore,
-			call: () => callIPQSAPI(formData.url, env),
+			skip: validatedData.skip_ipqualityscore,
+			call: (signal) => callIPQSAPI(validatedData.url, env, signal),
 			resultKey: 'ipqs_scan',
 			timeout: 10000,
 		},
 		{
 			name: 'Cloudflare',
-			skip: formData.skip_cloudflare,
-			call: () => callCloudflareAPI(formData.url, env),
+			skip: validatedData.skip_cloudflare,
+			call: (signal) => callCloudflareAPI(validatedData.url, env, signal),
 			resultKey: 'cloudflare_scan_uuid',
 			timeout: 10000,
 		},
 	];
 
-	// Process API calls in parallel with individual error handling
 	const activeApiCalls = apiCalls.filter((api) => !api.skip);
-
 	const apiPromises = activeApiCalls.map(async (api) => {
 		const startTime = Date.now();
 
 		try {
 			console.log(`Starting ${api.name} API call`, { requestId, timestamp: new Date().toISOString() });
-
 			const apiResult = await callApiWithTimeout(api.call, api.timeout);
 			const duration = Date.now() - startTime;
 
@@ -281,42 +307,34 @@ async function handleSubmission(formData, env) {
 		}
 	});
 
-	// Wait for all API calls to complete
 	const apiResults = await Promise.allSettled(apiPromises);
-
-	// Process results
 	apiResults.forEach((promiseResult) => {
 		if (promiseResult.status === 'fulfilled') {
 			const apiResult = promiseResult.value;
 
 			if (apiResult.success && apiResult.data) {
-				// Add successful result
 				result[apiResult.resultKey] = apiResult.data[apiResult.resultKey];
 			} else if (!apiResult.success) {
-				// Track API error but continue
 				result.apiErrors.push({
 					api: apiResult.name,
 					message: apiResult.error,
 				});
 			}
 		} else {
-			// Promise rejected
 			console.error('API promise rejected:', promiseResult.reason);
 		}
 	});
 
-	// Save to database (always save, even with some API failures)
 	try {
-		await saveReportToDB(env.DB, id, formData, result);
+		await saveReportToDB(env.DB, id, validatedData, result);
 	} catch (dbError) {
 		console.error('Database save error:', dbError);
-		// Still return the result even if DB save fails
 		result.dbError = 'Failed to save to database';
 	}
 
 	console.log('Submission process completed:', {
 		reportId: id,
-		requestId: requestId,
+		requestId,
 		successfulApis: Object.keys(result).filter((k) => !['success', 'id', 'apiErrors', 'dbError'].includes(k)).length,
 		failedApis: result.apiErrors.length,
 		timestamp: new Date().toISOString(),
@@ -325,7 +343,6 @@ async function handleSubmission(formData, env) {
 	return result;
 }
 
-// Validate form data
 function validateFormData(data) {
 	const name = data.name?.trim();
 	const category = data.category?.trim();
@@ -333,7 +350,6 @@ function validateFormData(data) {
 	const url = data.url?.trim();
 	const description = data.description?.trim();
 
-	// Name validation
 	if (!name || name.length < 2 || name.length > 100) {
 		throw {
 			status: 400,
@@ -342,7 +358,6 @@ function validateFormData(data) {
 		};
 	}
 
-	// Category validation
 	const allowedCategories = ['Phishing', 'Crypto Scam', 'Malware', 'Spam', 'Other'];
 	if (!category || !allowedCategories.includes(category)) {
 		throw {
@@ -352,7 +367,6 @@ function validateFormData(data) {
 		};
 	}
 
-	// Source validation
 	const allowedSources = ['Email', 'SMS', 'Social Media', 'Website', 'Other'];
 	if (!source || !allowedSources.includes(source)) {
 		throw {
@@ -362,9 +376,8 @@ function validateFormData(data) {
 		};
 	}
 
-	// URL validation
-	const urlRegex = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/;
-	if (!url || !urlRegex.test(url)) {
+	const parsedUrl = parseSubmittedUrl(url);
+	if (!parsedUrl) {
 		throw {
 			status: 400,
 			message: 'Invalid URL format',
@@ -372,7 +385,6 @@ function validateFormData(data) {
 		};
 	}
 
-	// Description validation (optional)
 	if (description && description.length > 500) {
 		throw {
 			status: 400,
@@ -380,30 +392,78 @@ function validateFormData(data) {
 			code: 'INVALID_DESCRIPTION',
 		};
 	}
+
+	return {
+		name,
+		category,
+		source,
+		url: parsedUrl.href,
+		description: description || null,
+		skip_urlscan: Boolean(data.skip_urlscan),
+		skip_virustotal: Boolean(data.skip_virustotal),
+		skip_ipqualityscore: Boolean(data.skip_ipqualityscore),
+		skip_cloudflare: Boolean(data.skip_cloudflare),
+	};
 }
 
-// Timeout wrapper for API calls
-async function callApiWithTimeout(apiCall, timeoutMs) {
-	return new Promise((resolve, reject) => {
-		const timeout = setTimeout(() => {
-			reject(new Error(`API timeout after ${timeoutMs}ms`));
-		}, timeoutMs);
+function parseSubmittedUrl(value) {
+	if (!value) {
+		return null;
+	}
 
-		apiCall()
-			.then((result) => {
-				clearTimeout(timeout);
-				resolve(result);
-			})
-			.catch((error) => {
-				clearTimeout(timeout);
-				reject(error);
-			});
-	});
-}
-
-// API: URLScan.io
-async function callUrlScanAPI(submittedUrl, env) {
 	try {
+		const parsed = new URL(value);
+		if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
+			return null;
+		}
+		return parsed;
+	} catch {
+		return null;
+	}
+}
+
+async function callApiWithTimeout(apiCall, timeoutMs) {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+	try {
+		return await apiCall(controller.signal);
+	} catch (error) {
+		if (error.name === 'AbortError') {
+			throw new Error(`API timeout after ${timeoutMs}ms`);
+		}
+		throw error;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+async function fetchWithTimeout(resource, options = {}, timeoutMs = 10000) {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+	try {
+		return await fetch(resource, { ...options, signal: controller.signal });
+	} catch (error) {
+		if (error.name === 'AbortError') {
+			throw new Error(`Request timeout after ${timeoutMs}ms`);
+		}
+		throw error;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+function delay(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callUrlScanAPI(submittedUrl, env, signal) {
+	try {
+		if (!env.URLSCAN_API_KEY) {
+			throw new Error('URLScan API key is not configured');
+		}
+
 		const response = await fetch('https://urlscan.io/api/v1/scan/', {
 			method: 'POST',
 			headers: {
@@ -414,6 +474,7 @@ async function callUrlScanAPI(submittedUrl, env) {
 				url: submittedUrl,
 				visibility: 'unlisted',
 			}),
+			signal,
 		});
 
 		if (!response.ok) {
@@ -422,7 +483,6 @@ async function callUrlScanAPI(submittedUrl, env) {
 		}
 
 		const data = await response.json();
-
 		if (!data.uuid) {
 			throw new Error('Missing UUID in response');
 		}
@@ -433,9 +493,12 @@ async function callUrlScanAPI(submittedUrl, env) {
 	}
 }
 
-// API: VirusTotal
-async function callVirusTotalAPI(submittedUrl, env) {
+async function callVirusTotalAPI(submittedUrl, env, signal) {
 	try {
+		if (!env.VIRUSTOTAL_API_KEY) {
+			throw new Error('VirusTotal API key is not configured');
+		}
+
 		const response = await fetch('https://www.virustotal.com/api/v3/urls', {
 			method: 'POST',
 			headers: {
@@ -444,6 +507,7 @@ async function callVirusTotalAPI(submittedUrl, env) {
 				'x-apikey': env.VIRUSTOTAL_API_KEY,
 			},
 			body: new URLSearchParams({ url: submittedUrl }),
+			signal,
 		});
 
 		if (!response.ok) {
@@ -451,33 +515,32 @@ async function callVirusTotalAPI(submittedUrl, env) {
 		}
 
 		const data = await response.json();
-
 		if (!data.data?.id) {
 			throw new Error('Missing scan ID in response');
 		}
 
-		// Extract the clean scan ID
 		const rawScanId = data.data.id;
 		const cleanScanId = rawScanId.substring(2, rawScanId.lastIndexOf('-'));
-
 		return { virustotal_scan_id: cleanScanId };
 	} catch (error) {
 		throw new Error(`VirusTotal API: ${error.message}`);
 	}
 }
 
-// API: IPQualityScore
-async function callIPQSAPI(submittedUrl, env) {
+async function callIPQSAPI(submittedUrl, env, signal) {
 	try {
+		if (!env.IPQS_API_KEY) {
+			throw new Error('IPQualityScore API key is not configured');
+		}
+
 		const apiUrl = `https://ipqualityscore.com/api/json/url/${env.IPQS_API_KEY}/${encodeURIComponent(submittedUrl)}`;
-		const response = await fetch(apiUrl);
+		const response = await fetch(apiUrl, { signal });
 
 		if (!response.ok) {
 			throw new Error(`HTTP ${response.status}`);
 		}
 
 		const data = await response.json();
-
 		if (!data.success) {
 			throw new Error(data.message || 'API returned success: false');
 		}
@@ -488,20 +551,23 @@ async function callIPQSAPI(submittedUrl, env) {
 	}
 }
 
-// API: Cloudflare Radar
-async function callCloudflareAPI(submittedUrl, env) {
+async function callCloudflareAPI(submittedUrl, env, signal) {
 	try {
+		if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) {
+			throw new Error('Cloudflare URL Scanner credentials are not configured');
+		}
+
 		const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/urlscanner/scan`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				'X-Auth-Key': env.CLOUDFLARE_API_KEY,
-				'X-Auth-Email': env.CLOUDFLARE_USER_EMAIL,
+				Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
 			},
 			body: JSON.stringify({
 				url: submittedUrl,
 				visibility: 'unlisted',
 			}),
+			signal,
 		});
 
 		if (!response.ok) {
@@ -510,7 +576,6 @@ async function callCloudflareAPI(submittedUrl, env) {
 		}
 
 		const data = await response.json();
-
 		if (!data.result?.uuid) {
 			throw new Error('Missing UUID in response');
 		}
@@ -521,24 +586,22 @@ async function callCloudflareAPI(submittedUrl, env) {
 	}
 }
 
-// Save report to D1 database
 async function saveReportToDB(db, id, formData, result) {
 	const startTime = Date.now();
 
 	try {
 		console.log('Saving to database:', { reportId: id });
-
 		const apiErrorsJson = result.apiErrors.length > 0 ? JSON.stringify(result.apiErrors) : null;
 
 		await db
 			.prepare(
 				`
-				INSERT INTO reports_v2 (
-					id, name, category, source, url, description, 
-					urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid,
-					api_errors, submission_success
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			`
+					INSERT INTO reports_v2 (
+						id, name, category, source, url, description,
+						urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid,
+						api_errors, submission_success
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`
 			)
 			.bind(
 				id,
@@ -546,7 +609,7 @@ async function saveReportToDB(db, id, formData, result) {
 				formData.category,
 				formData.source,
 				formData.url,
-				formData.description || null,
+				formData.description,
 				result.urlscan_uuid || null,
 				result.virustotal_scan_id || null,
 				result.ipqs_scan ? JSON.stringify(result.ipqs_scan) : null,
@@ -556,34 +619,28 @@ async function saveReportToDB(db, id, formData, result) {
 			)
 			.run();
 
-		const duration = Date.now() - startTime;
 		console.log('Database save completed:', {
 			reportId: id,
-			duration: `${duration}ms`,
+			duration: `${Date.now() - startTime}ms`,
 		});
 	} catch (error) {
-		const duration = Date.now() - startTime;
 		console.error('Database save error:', {
 			reportId: id,
 			error: error.message,
-			duration: `${duration}ms`,
+			duration: `${Date.now() - startTime}ms`,
 		});
 		throw new Error('Database save failed');
 	}
 }
 
-// Get a report by ID from the D1 database
 async function getReportFromDB(db, id) {
-	// Validate the ID format (UUID)
 	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 	if (!uuidRegex.test(id)) {
 		throw new Error('Invalid report ID format');
 	}
 
 	try {
-		const stmt = db.prepare('SELECT * FROM reports_v2 WHERE id = ?');
-		const result = await stmt.bind(id).first();
-		return result;
+		return await db.prepare('SELECT * FROM reports_v2 WHERE id = ?').bind(id).first();
 	} catch (error) {
 		console.error('Database read error:', error);
 		throw new Error('Database read failed');

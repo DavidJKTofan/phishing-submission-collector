@@ -624,6 +624,45 @@
 			}
 
 			/* Report Status Section */
+			#reportStatusForm {
+				display: grid;
+				gap: 1rem;
+				max-width: 720px;
+				margin: 0 auto;
+			}
+
+			#reportStatusForm .form-group {
+				display: grid;
+				gap: 0.5rem;
+			}
+
+			#reportStatusForm label {
+				font-weight: 600;
+				color: var(--text-primary);
+			}
+
+			#reportId {
+				width: 100%;
+				min-width: 0;
+				padding: 0.875rem 1rem;
+				border: 1px solid var(--border);
+				border-radius: var(--radius-sm);
+				background: var(--bg-primary);
+				color: var(--text-primary);
+				font: inherit;
+			}
+
+			#reportId:focus {
+				outline: none;
+				border-color: var(--primary);
+				box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+			}
+
+			#reportStatusForm .btn {
+				width: fit-content;
+				justify-self: center;
+			}
+
 			.result-container {
 				margin-top: 2rem;
 				padding: 1.5rem;
@@ -643,6 +682,12 @@
 				padding: 0.5rem;
 				background: var(--bg-tertiary);
 				border-radius: var(--radius-sm);
+				overflow-wrap: anywhere;
+			}
+
+			.report-item strong {
+				display: block;
+				margin-bottom: 0.25rem;
 			}
 
 			.report-item.full-width {
@@ -660,6 +705,16 @@
 				background: #fef2f2;
 				color: #991b1b;
 				border: 1px solid #fecaca;
+			}
+
+			@media (max-width: 768px) {
+				.report-grid {
+					grid-template-columns: 1fr;
+				}
+
+				#reportStatusForm .btn {
+					width: 100%;
+				}
 			}
 		</style>
 	</head>
@@ -851,6 +906,14 @@
 								<div class="resource-link-content">
 									<span class="resource-icon">🔎</span>
 									<span>URLScan.io</span>
+								</div>
+							</a>
+						</li>
+						<li>
+							<a href="https://www.antiphish.org/report/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+								<div class="resource-link-content">
+									<span class="resource-icon">🛡️</span>
+									<span>Anti-Phish Report</span>
 								</div>
 							</a>
 						</li>
@@ -1124,7 +1187,7 @@
 					<ul class="resource-list">
 						<li>
 							<a
-								href="https://www.internet-beschwerdestelle.de/en/complaint/submit/e-mail-and-spam.html"
+								href="https://www.internet-beschwerdestelle.de/en/how-to-submit-your-complaint/e-mail-spam/"
 								target="_blank"
 								rel="noopener noreferrer external"
 								class="resource-link"
@@ -1371,7 +1434,7 @@
 					}
 
 					// Clear previous results and errors
-					resultContainer.innerHTML = '';
+					clearElement(resultContainer);
 					errorMessage.style.display = 'none';
 					resultContainer.style.display = 'none';
 
@@ -1381,7 +1444,7 @@
 					submitButton.textContent = 'Searching...';
 
 					try {
-						const response = await fetch(`/api/report/${reportId}`);
+						const response = await fetch(`/api/report/${encodeURIComponent(reportId)}`);
 						const data = await response.json();
 
 						if (response.ok) {
@@ -1404,33 +1467,59 @@
 				}
 
 				function displayReport(report) {
+					clearElement(resultContainer);
 					resultContainer.style.display = 'block';
-					let content = `
-						<h3>Report Details (ID: ${report.id})</h3>
-						<div class="report-grid">
-							<div class="report-item"><strong>Name:</strong> ${report.name}</div>
-							<div class="report-item"><strong>Category:</strong> ${report.category}</div>
-							<div class="report-item"><strong>Source:</strong> ${report.source}</div>
-							<div class="report-item full-width"><strong>URL:</strong> ${report.url}</div>
-							<div class="report-item full-width"><strong>Description:</strong> ${report.description || 'N/A'}</div>
-							<div class="report-item"><strong>Submission Success:</strong> ${report.submission_success ? 'Yes' : 'No'}</div>
-						</div>
-					`;
+
+					const title = document.createElement('h3');
+					title.textContent = `Report Details (ID: ${formatValue(report.id)})`;
+
+					const grid = document.createElement('div');
+					grid.className = 'report-grid';
+
+					appendReportItem(grid, 'Name', report.name);
+					appendReportItem(grid, 'Category', report.category);
+					appendReportItem(grid, 'Source', report.source);
+					appendReportItem(grid, 'URL', report.url, true);
+					appendReportItem(grid, 'Description', report.description || 'N/A', true);
+					appendReportItem(grid, 'Submission Success', report.submission_success ? 'Yes' : 'No');
 
 					if (report.urlscan_uuid) {
-						content += `<div class="report-item"><strong>URLScan UUID:</strong> ${report.urlscan_uuid}</div>`;
+						appendReportItem(grid, 'URLScan UUID', report.urlscan_uuid);
 					}
 					if (report.virustotal_scan_id) {
-						content += `<div class="report-item"><strong>VirusTotal Scan ID:</strong> ${report.virustotal_scan_id}</div>`;
+						appendReportItem(grid, 'VirusTotal Scan ID', report.virustotal_scan_id);
 					}
 					if (report.cloudflare_scan_uuid) {
-						content += `<div class="report-item"><strong>Cloudflare Scan UUID:</strong> ${report.cloudflare_scan_uuid}</div>`;
+						appendReportItem(grid, 'Cloudflare Scan UUID', report.cloudflare_scan_uuid);
 					}
 					if (report.api_errors) {
-						content += `<div class="report-item full-width"><strong>API Errors:</strong> ${report.api_errors}</div>`;
+						appendReportItem(grid, 'API Errors', report.api_errors, true);
 					}
 
-					resultContainer.innerHTML = content;
+					resultContainer.append(title, grid);
+				}
+
+				function appendReportItem(grid, label, value, fullWidth = false) {
+					const item = document.createElement('div');
+					item.className = fullWidth ? 'report-item full-width' : 'report-item';
+
+					const labelNode = document.createElement('strong');
+					labelNode.textContent = `${label}:`;
+					item.append(labelNode, document.createTextNode(formatValue(value)));
+					grid.appendChild(item);
+				}
+
+				function formatValue(value) {
+					if (value === null || value === undefined || value === '') {
+						return 'N/A';
+					}
+					return String(value);
+				}
+
+				function clearElement(element) {
+					while (element.firstChild) {
+						element.firstChild.remove();
+					}
 				}
 			});
 		</script>
