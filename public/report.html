@@ -661,6 +661,106 @@
 				color: #991b1b;
 				border: 1px solid #fecaca;
 			}
+
+			/* Reduced motion: disable decorative animations site-wide */
+			@media (prefers-reduced-motion: reduce) {
+				*,
+				*::before,
+				*::after {
+					animation-duration: 0.001ms !important;
+					animation-iteration-count: 1 !important;
+					transition-duration: 0.001ms !important;
+					scroll-behavior: auto !important;
+				}
+			}
+
+			/* Dark mode palette */
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--bg-primary: #1e293b;
+					--bg-secondary: #0f172a;
+					--bg-tertiary: #1e293b;
+					--text-primary: #e2e8f0;
+					--text-secondary: #cbd5e1;
+					--text-muted: #94a3b8;
+					--border: #334155;
+					--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+					--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+					--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+					--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+				}
+
+				body {
+					background: var(--bg-secondary);
+					color: var(--text-primary);
+				}
+
+				.quick-start,
+				.resource-card,
+				.email-card {
+					background: var(--bg-primary);
+					border-color: var(--border);
+				}
+
+				.step,
+				.resource-link,
+				.report-item {
+					background: var(--bg-tertiary);
+				}
+
+				.resource-link:hover {
+					background: #0b1220;
+				}
+
+				.sub-item {
+					background: var(--bg-primary);
+					color: var(--text-primary);
+					border-color: var(--border);
+				}
+
+				.info-box {
+					background: rgba(37, 99, 235, 0.1);
+					border-color: rgba(37, 99, 235, 0.3);
+				}
+
+				.priority-badge {
+					background: #451a03;
+					color: #fde68a;
+				}
+
+				footer {
+					background: var(--bg-primary);
+					border-top-color: var(--border);
+				}
+
+				.email-card {
+					background: rgba(255, 255, 255, 0.06);
+					color: var(--text-primary);
+				}
+
+				.email-card h3 {
+					border-bottom-color: var(--border);
+				}
+
+				.alert-error {
+					background: #450a0a;
+					color: #fecaca;
+					border-color: #b91c1c;
+				}
+
+				input[type='text'],
+				input[type='url'],
+				select,
+				textarea {
+					background: var(--bg-tertiary);
+					color: var(--text-primary);
+					border-color: var(--border);
+				}
+
+				.result-container {
+					background: var(--bg-primary);
+				}
+			}
 		</style>
 	</head>
 	<body>
@@ -1302,10 +1402,18 @@
 								<li>
 									<a href="https://apwg.org/resources" target="_blank" rel="noopener noreferrer external" class="resource-link">
 										<div class="resource-link-content">
-											<span class="resource-icon">🌐</span>
+											<span class="resource-icon" aria-hidden="true">🌐</span>
 											<span>APWG Reporting</span>
 										</div>
 									</a>
+								</li>
+								<li>
+									<a href="https://www.antiphish.org/report/" target="_blank" rel="noopener noreferrer external" class="resource-link">
+										<div class="resource-link-content">
+											<span class="resource-icon" aria-hidden="true">🛡️</span>
+											<span>Anti-Phishing Volunteers (antiphish.org)</span>
+										</div>
+								</a>
 								</li>
 							</ul>
 						</div>
@@ -1354,85 +1462,6 @@
 			</div>
 		</footer>
 
-		<script>
-			document.addEventListener('DOMContentLoaded', function () {
-				const reportForm = document.getElementById('reportStatusForm');
-				const reportIdInput = document.getElementById('reportId');
-				const resultContainer = document.getElementById('reportResult');
-				const errorMessage = document.getElementById('errorMessage');
-
-				reportForm.addEventListener('submit', async function (e) {
-					e.preventDefault();
-					const reportId = reportIdInput.value.trim();
-
-					if (!reportId) {
-						showError('Please enter a Report ID.');
-						return;
-					}
-
-					// Clear previous results and errors
-					resultContainer.innerHTML = '';
-					errorMessage.style.display = 'none';
-					resultContainer.style.display = 'none';
-
-					// Add loading indicator
-					const submitButton = reportForm.querySelector('button');
-					submitButton.disabled = true;
-					submitButton.textContent = 'Searching...';
-
-					try {
-						const response = await fetch(`/api/report/${reportId}`);
-						const data = await response.json();
-
-						if (response.ok) {
-							displayReport(data);
-						} else {
-							showError(data.error || 'An unknown error occurred.');
-						}
-					} catch (error) {
-						showError('Failed to fetch the report. Please check your network connection.');
-					} finally {
-						// Restore button
-						submitButton.disabled = false;
-						submitButton.textContent = 'Check Status';
-					}
-				});
-
-				function showError(message) {
-					errorMessage.textContent = message;
-					errorMessage.style.display = 'block';
-				}
-
-				function displayReport(report) {
-					resultContainer.style.display = 'block';
-					let content = `
-						<h3>Report Details (ID: ${report.id})</h3>
-						<div class="report-grid">
-							<div class="report-item"><strong>Name:</strong> ${report.name}</div>
-							<div class="report-item"><strong>Category:</strong> ${report.category}</div>
-							<div class="report-item"><strong>Source:</strong> ${report.source}</div>
-							<div class="report-item full-width"><strong>URL:</strong> ${report.url}</div>
-							<div class="report-item full-width"><strong>Description:</strong> ${report.description || 'N/A'}</div>
-							<div class="report-item"><strong>Submission Success:</strong> ${report.submission_success ? 'Yes' : 'No'}</div>
-						</div>
-					`;
-
-					if (report.urlscan_uuid) {
-						content += `<div class="report-item"><strong>URLScan UUID:</strong> ${report.urlscan_uuid}</div>`;
-					}
-					if (report.virustotal_scan_id) {
-						content += `<div class="report-item"><strong>VirusTotal Scan ID:</strong> ${report.virustotal_scan_id}</div>`;
-					}
-					if (report.cloudflare_scan_uuid) {
-						content += `<div class="report-item"><strong>Cloudflare Scan UUID:</strong> ${report.cloudflare_scan_uuid}</div>`;
-					}
-					if (report.api_errors) {
-						content += `<div class="report-item full-width"><strong>API Errors:</strong> ${report.api_errors}</div>`;
-					}
-
-					resultContainer.innerHTML = content;
-				}
-			});
-		</script>
+		<script src="assets/report.js" defer></script>
 	</body>
 </html>

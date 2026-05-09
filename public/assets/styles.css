@@ -785,3 +785,159 @@ footer {
 		padding: 0.875rem 1.5rem;
 	}
 }
+
+/* Submit hint under the disabled submit button */
+.submit-hint {
+	margin-top: 0.75rem;
+	text-align: center;
+	font-size: 0.875rem;
+	color: var(--text-light);
+}
+
+/* Result row monospace ID */
+.result-mono {
+	font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+	background: var(--surface);
+	padding: 0.5rem;
+	border-radius: 8px;
+	display: inline-block;
+	word-break: break-all;
+}
+
+/* API error details inside result container */
+.result-api-errors {
+	margin-top: 1rem;
+	padding: 1rem;
+	background: #fef3c7;
+	border: 2px solid var(--warning);
+	border-radius: 12px;
+}
+
+.result-api-errors > summary {
+	cursor: pointer;
+	font-weight: 600;
+	color: #92400e;
+	user-select: none;
+}
+
+.result-api-errors ul {
+	margin-top: 0.75rem;
+	padding-left: 1.5rem;
+	font-size: 0.9rem;
+	color: #78350f;
+}
+
+.result-api-errors li {
+	margin: 0.5rem 0;
+}
+
+/* Reduced motion: disable decorative animations */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.001ms !important;
+	}
+
+	.background-animation,
+	.gradient-orb {
+		animation: none !important;
+	}
+}
+
+/* Dark mode palette */
+@media (prefers-color-scheme: dark) {
+	:root {
+		--text: #e2e8f0;
+		--text-light: #94a3b8;
+		--bg: #0f172a;
+		--surface: #1e293b;
+		--border: #334155;
+		--shadow: rgba(0, 0, 0, 0.4);
+		--shadow-lg: rgba(0, 0, 0, 0.6);
+	}
+
+	body {
+		background: var(--bg);
+		color: var(--text);
+	}
+
+	.hero h1 {
+		background: linear-gradient(135deg, #f1f5f9, var(--primary-light));
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+
+	input[type='text'],
+	input[type='url'],
+	select,
+	textarea {
+		background: var(--surface);
+		color: var(--text);
+		border-color: var(--border);
+	}
+
+	input[type='text']:focus,
+	input[type='url']:focus,
+	select:focus,
+	textarea:focus {
+		background: #0b1220;
+	}
+
+	.form-section,
+	.quick-link,
+	.checkbox-label,
+	.advanced-options,
+	.advanced-options summary,
+	.checkbox-custom {
+		background: var(--surface);
+		border-color: var(--border);
+	}
+
+	.advanced-options {
+		background: linear-gradient(135deg, #1e293b, #0f172a);
+	}
+
+	.alert-error {
+		background: linear-gradient(135deg, #450a0a, #7f1d1d);
+		color: #fecaca;
+		border-color: #b91c1c;
+	}
+
+	.alert-warning {
+		background: linear-gradient(135deg, #451a03, #78350f);
+		color: #fde68a;
+		border-color: #b45309;
+	}
+
+	.result-container {
+		background: linear-gradient(135deg, #022c22, #064e3b);
+		border-color: #047857;
+	}
+
+	.result-details p {
+		background: var(--surface);
+		border-color: #047857;
+	}
+
+	.result-mono {
+		background: #0b1220;
+		color: var(--text);
+	}
+
+	.result-api-errors {
+		background: #451a03;
+		border-color: #b45309;
+	}
+
+	.result-api-errors > summary {
+		color: #fde68a;
+	}
+
+	.result-api-errors ul {
+		color: #fcd34d;
+	}
+}

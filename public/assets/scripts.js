@@ -1,4 +1,3 @@
-// State management
 const state = {
 	turnstileWidget: null,
 	turnstileLoaded: false,
@@ -7,7 +6,6 @@ const state = {
 	maxRetries: 3,
 };
 
-// DOM elements
 const elements = {
 	form: null,
 	submitBtn: null,
@@ -18,27 +16,21 @@ const elements = {
 	turnstileResponse: null,
 };
 
-// Global callback for Turnstile onload
 window.onloadTurnstileCallback = function () {
-	console.log('Turnstile library loaded');
 	state.turnstileLoaded = true;
 	renderTurnstileWidget();
 };
 
-// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', function () {
 	initializeElements();
 	setupFormValidation();
 	setupFormSubmission();
 	setupAnimations();
 
-	// If Turnstile already loaded (unlikely but possible), render it
 	if (window.turnstile && !state.turnstileWidget) {
-		console.log('Turnstile already loaded on DOMContentLoaded');
 		renderTurnstileWidget();
 	}
 
-	// Safety check: If Turnstile doesn't load within 10 seconds, show error
 	setTimeout(() => {
 		if (!state.turnstileLoaded) {
 			console.error('Turnstile failed to load within timeout');
@@ -47,7 +39,6 @@ document.addEventListener('DOMContentLoaded', function () {
 	}, 10000);
 });
 
-// Initialize DOM element references
 function initializeElements() {
 	elements.form = document.getElementById('phishingForm');
 	elements.submitBtn = document.getElementById('submit-btn');
@@ -58,32 +49,36 @@ function initializeElements() {
 	elements.turnstileResponse = document.getElementById('cf-turnstile-response');
 }
 
-// Render Turnstile widget
 function renderTurnstileWidget() {
-	// Check if Turnstile is available
 	if (typeof turnstile === 'undefined' || !window.turnstile) {
 		console.error('Turnstile library not available');
 		showTurnstileError('Security verification not available. Please refresh the page.');
 		return;
 	}
 
-	// Remove existing widget if present
 	if (state.turnstileWidget) {
 		try {
 			turnstile.remove(state.turnstileWidget);
 		} catch (e) {
 			console.warn('Error removing Turnstile widget:', e);
 		}
+		state.turnstileWidget = null;
 	}
 
-	// Clear any previous errors
 	hideTurnstileError();
+
+	const sitekey = elements.turnstileContainer?.dataset?.sitekey;
+	if (!sitekey) {
+		console.error('Missing data-sitekey on Turnstile container');
+		showTurnstileError('Security verification misconfigured.');
+		return;
+	}
 
 	try {
 		state.turnstileWidget = turnstile.render('#turnstile-container', {
-			sitekey: '0x4AAAAAAA1Q4zDSRdaSX7mZ',
+			sitekey,
 			action: 'submit-report',
-			theme: 'light',
+			theme: 'auto',
 			size: 'normal',
 			callback: handleTurnstileSuccess,
 			'expired-callback': handleTurnstileExpired,
@@ -94,16 +89,13 @@ function renderTurnstileWidget() {
 
 		state.turnstileLoaded = true;
 		state.retryCount = 0;
-		console.log('Turnstile widget rendered successfully');
 	} catch (error) {
 		console.error('Error rendering Turnstile:', error);
 		handleTurnstileError();
 	}
 }
 
-// Turnstile callback handlers
 function handleTurnstileSuccess(token) {
-	console.log('Turnstile verification successful');
 	elements.turnstileResponse.value = token;
 	elements.submitBtn.disabled = false;
 	hideTurnstileError();
@@ -111,48 +103,30 @@ function handleTurnstileSuccess(token) {
 }
 
 function handleTurnstileExpired() {
-	console.warn('Turnstile token expired');
 	elements.turnstileResponse.value = '';
 	elements.submitBtn.disabled = true;
-	showTurnstileError('Security verification expired. Please complete it again.');
-
-	// Auto-refresh the widget
-	setTimeout(() => {
-		if (state.retryCount < state.maxRetries) {
-			state.retryCount++;
-			console.log(`Auto-refreshing Turnstile (attempt ${state.retryCount}/${state.maxRetries})`);
-			renderTurnstileWidget();
-		}
-	}, 1000);
+	showTurnstileError('Security verification expired. Refreshing…');
+	resetTurnstile();
 }
 
 function handleTurnstileError() {
-	console.error('Turnstile verification error');
 	elements.turnstileResponse.value = '';
 	elements.submitBtn.disabled = true;
-	showTurnstileError('Security verification failed. Retrying...');
 
-	// Retry rendering the widget
 	if (state.retryCount < state.maxRetries) {
 		state.retryCount++;
-		setTimeout(() => {
-			console.log(`Retrying Turnstile render (attempt ${state.retryCount}/${state.maxRetries})`);
-			renderTurnstileWidget();
-		}, 2000);
+		showTurnstileError(`Security verification failed. Retrying (${state.retryCount}/${state.maxRetries})…`);
+		setTimeout(renderTurnstileWidget, 2000);
 	} else {
 		showTurnstileError('Security verification unavailable. Please refresh the page.');
 	}
 }
 
 function handleTurnstileTimeout() {
-	console.warn('Turnstile verification timeout');
 	elements.turnstileResponse.value = '';
-	showTurnstileError('Security verification timed out. Please try again.');
-
-	// Reset and try again
-	setTimeout(() => {
-		renderTurnstileWidget();
-	}, 1500);
+	elements.submitBtn.disabled = true;
+	showTurnstileError('Security verification timed out. Refreshing…');
+	resetTurnstile();
 }
 
 function handleTurnstileUnsupported() {
@@ -160,7 +134,6 @@ function handleTurnstileUnsupported() {
 	showTurnstileError('Security verification not supported in this browser.');
 }
 
-// Show/hide Turnstile errors
 function showTurnstileError(message) {
 	elements.turnstileError.textContent = message;
 	elements.turnstileError.style.display = 'block';
@@ -170,7 +143,6 @@ function hideTurnstileError() {
 	elements.turnstileError.style.display = 'none';
 }
 
-// Reset Turnstile widget
 function resetTurnstile() {
 	if (!window.turnstile) {
 		console.error('Turnstile not available for reset');
@@ -184,34 +156,23 @@ function resetTurnstile() {
 			elements.submitBtn.disabled = true;
 		} catch (error) {
 			console.error('Error resetting Turnstile:', error);
-			// If reset fails, re-render the widget
 			renderTurnstileWidget();
 		}
 	} else {
-		// No widget exists, try to render one
 		renderTurnstileWidget();
 	}
 }
 
-// Form validation setup
 function setupFormValidation() {
-	// Real-time URL validation
 	const urlInput = document.getElementById('url');
-	urlInput.addEventListener('blur', function () {
-		validateField('url');
-	});
+	urlInput.addEventListener('blur', () => validateField('url'));
+	urlInput.addEventListener('input', () => clearFieldError('url'));
 
-	urlInput.addEventListener('input', function () {
-		clearFieldError('url');
-	});
-
-	// Real-time description character count
 	const descriptionInput = document.getElementById('description');
 	const descriptionHint = document.getElementById('description-hint');
 
 	descriptionInput.addEventListener('input', function () {
 		const remaining = 500 - this.value.length;
-
 		if (remaining < 0) {
 			descriptionHint.textContent = `${Math.abs(remaining)} characters over limit`;
 			descriptionHint.style.color = 'var(--danger)';
@@ -227,7 +188,6 @@ function setupFormValidation() {
 		}
 	});
 
-	// Clear error on input for other fields
 	['name', 'category', 'source'].forEach((fieldId) => {
 		const field = document.getElementById(fieldId);
 		field.addEventListener('input', () => clearFieldError(fieldId));
@@ -235,7 +195,17 @@ function setupFormValidation() {
 	});
 }
 
-// Validate individual field
+function isValidHttpUrl(value) {
+	if (!value || value.length > 2048) return false;
+	let parsed;
+	try {
+		parsed = new URL(value);
+	} catch {
+		return false;
+	}
+	return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+}
+
 function validateField(fieldId) {
 	const field = document.getElementById(fieldId);
 	const value = field.value.trim();
@@ -274,12 +244,9 @@ function validateField(fieldId) {
 			if (!value) {
 				errorMessage = 'URL is required';
 				isValid = false;
-			} else {
-				const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/;
-				if (!urlPattern.test(value)) {
-					errorMessage = 'Please enter a valid URL (must start with http:// or https://)';
-					isValid = false;
-				}
+			} else if (!isValidHttpUrl(value)) {
+				errorMessage = 'Please enter a valid URL (must start with http:// or https://)';
+				isValid = false;
 			}
 			break;
 	}
@@ -295,18 +262,14 @@ function validateField(fieldId) {
 	return isValid;
 }
 
-// Validate entire form
 function validateForm() {
 	const fields = ['name', 'category', 'source', 'url'];
 	let isValid = true;
 
 	fields.forEach((fieldId) => {
-		if (!validateField(fieldId)) {
-			isValid = false;
-		}
+		if (!validateField(fieldId)) isValid = false;
 	});
 
-	// Check description length
 	const description = document.getElementById('description').value;
 	if (description.length > 500) {
 		showFieldError('description', 'Description must be 500 characters or less');
@@ -314,7 +277,6 @@ function validateForm() {
 		isValid = false;
 	}
 
-	// Check Turnstile token
 	if (!elements.turnstileResponse.value) {
 		showError('Please complete the security verification');
 		isValid = false;
@@ -323,7 +285,6 @@ function validateForm() {
 	return isValid;
 }
 
-// Show/hide field errors
 function showFieldError(fieldId, message) {
 	const errorElement = document.getElementById(`${fieldId}-error`);
 	if (errorElement) {
@@ -334,13 +295,10 @@ function showFieldError(fieldId, message) {
 
 function clearFieldError(fieldId) {
 	const errorElement = document.getElementById(`${fieldId}-error`);
-	if (errorElement) {
-		errorElement.style.display = 'none';
-	}
+	if (errorElement) errorElement.style.display = 'none';
 	document.getElementById(fieldId).classList.remove('error');
 }
 
-// Show/hide general messages
 function showError(message) {
 	elements.errorMessage.textContent = message;
 	elements.errorMessage.style.display = 'block';
@@ -351,47 +309,26 @@ function hideError() {
 	elements.errorMessage.style.display = 'none';
 }
 
-function showWarning(message) {
-	elements.warningMessage.textContent = message;
-	elements.warningMessage.style.display = 'block';
-}
-
 function hideWarning() {
 	elements.warningMessage.style.display = 'none';
 }
 
-// Form submission setup
 function setupFormSubmission() {
 	elements.form.addEventListener('submit', async function (e) {
 		e.preventDefault();
-
-		// Prevent double submission
-		if (state.isSubmitting) {
-			return;
-		}
-
-		// Hide previous messages
+		if (state.isSubmitting) return;
 		hideError();
 		hideWarning();
-
-		// Validate form
-		if (!validateForm()) {
-			return;
-		}
-
+		if (!validateForm()) return;
 		await submitForm();
 	});
 }
 
-// Submit form to API
 async function submitForm() {
 	state.isSubmitting = true;
-
-	// Update button state
 	elements.submitBtn.disabled = true;
 	elements.submitBtn.classList.add('loading');
 
-	// Collect form data
 	const formData = {
 		name: document.getElementById('name').value.trim(),
 		category: document.getElementById('category').value,
@@ -408,179 +345,155 @@ async function submitForm() {
 	try {
 		const response = await fetch('/submit', {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(formData),
 		});
 
 		const data = await response.json();
 
 		if (response.ok) {
-			// Success - show results
 			handleSubmissionSuccess(data);
 		} else {
-			// Error response from server
 			handleSubmissionError(data);
 		}
 	} catch (error) {
 		console.error('Submission error:', error);
 		showError('Network error. Please check your connection and try again.');
 	} finally {
-		// Reset button state
 		state.isSubmitting = false;
 		elements.submitBtn.classList.remove('loading');
 		elements.submitBtn.disabled = false;
 	}
 }
 
-// Handle successful submission
-function handleSubmissionSuccess(data) {
-	// Clear form
-	elements.form.reset();
+function buildResultRow(label, value, { mono = false } = {}) {
+	const p = document.createElement('p');
+	const strong = document.createElement('strong');
+	strong.textContent = label;
+	p.appendChild(strong);
 
-	// Reset Turnstile
+	const span = document.createElement('span');
+	if (mono) span.className = 'result-mono';
+	span.textContent = value;
+	p.appendChild(span);
+	return p;
+}
+
+function buildResultLink(label, href, linkText) {
+	const p = document.createElement('p');
+	const strong = document.createElement('strong');
+	strong.textContent = label;
+	p.appendChild(strong);
+
+	const a = document.createElement('a');
+	a.href = href;
+	a.target = '_blank';
+	a.rel = 'nofollow noreferrer noopener external';
+	a.textContent = linkText;
+	p.appendChild(a);
+	return p;
+}
+
+function handleSubmissionSuccess(data) {
+	elements.form.reset();
 	resetTurnstile();
 
-	// Remove existing result if present
-	const existingResult = document.querySelector('.result-container');
-	if (existingResult) {
-		existingResult.remove();
-	}
+	document.querySelector('.result-container')?.remove();
 
-	// Create success result
 	const resultContainer = document.createElement('div');
 	resultContainer.className = 'result-container';
 
-	let resultHTML = `
-		<h2>✅ Submission Successful!</h2>
-		<div class="result-details">
-			<p>
-				<strong>Report ID</strong>
-				<span style="font-family: monospace; background: white; padding: 0.5rem; border-radius: 8px; display: inline-block;">${data.id}</span>
-			</p>
-	`;
+	const heading = document.createElement('h2');
+	heading.textContent = '✅ Submission Successful!';
+	resultContainer.appendChild(heading);
 
-	// Add API results if available
-	const apiResults = [];
+	const details = document.createElement('div');
+	details.className = 'result-details';
+	details.appendChild(buildResultRow('Report ID', String(data.id || ''), { mono: true }));
 
 	if (data.urlscan_uuid) {
-		apiResults.push({
-			name: 'URLScan.io Analysis',
-			url: `https://urlscan.io/result/${data.urlscan_uuid}/`,
-			text: 'View detailed scan results →',
-		});
+		details.appendChild(
+			buildResultLink('URLScan.io Analysis', `https://urlscan.io/result/${encodeURIComponent(data.urlscan_uuid)}/`, 'View detailed scan results →')
+		);
 	}
-
 	if (data.virustotal_scan_id) {
-		apiResults.push({
-			name: 'VirusTotal Scan',
-			url: `https://www.virustotal.com/gui/url/${data.virustotal_scan_id}`,
-			text: 'View malware analysis →',
-		});
+		details.appendChild(
+			buildResultLink(
+				'VirusTotal Scan',
+				`https://www.virustotal.com/gui/url/${encodeURIComponent(data.virustotal_scan_id)}`,
+				'View malware analysis →'
+			)
+		);
 	}
-
 	if (data.cloudflare_scan_uuid) {
-		apiResults.push({
-			name: 'Cloudflare Radar Scan',
-			url: `https://radar.cloudflare.com/scan/${data.cloudflare_scan_uuid}/summary`,
-			text: 'View security report →',
+		details.appendChild(
+			buildResultLink(
+				'Cloudflare Radar Scan',
+				`https://radar.cloudflare.com/scan/${encodeURIComponent(data.cloudflare_scan_uuid)}/summary`,
+				'View security report →'
+			)
+		);
+	}
+
+	if (Array.isArray(data.apiErrors) && data.apiErrors.length > 0) {
+		const detailsEl = document.createElement('details');
+		detailsEl.className = 'result-api-errors';
+		const summary = document.createElement('summary');
+		summary.textContent = `⚠️ Some API calls had issues (${data.apiErrors.length})`;
+		detailsEl.appendChild(summary);
+
+		const ul = document.createElement('ul');
+		data.apiErrors.forEach((err) => {
+			const li = document.createElement('li');
+			const apiName = document.createElement('strong');
+			apiName.textContent = `${err.api}: `;
+			li.appendChild(apiName);
+			li.appendChild(document.createTextNode(String(err.message || '')));
+			ul.appendChild(li);
 		});
+		detailsEl.appendChild(ul);
+		details.appendChild(detailsEl);
 	}
 
-	// Display API results
-	apiResults.forEach((result) => {
-		resultHTML += `
-			<p>
-				<strong>${result.name}</strong>
-				<a href="${result.url}" target="_blank" rel="nofollow noreferrer external">
-					${result.text}
-				</a>
-			</p>
-		`;
-	});
-
-	// Show API errors if any occurred
-	if (data.apiErrors && data.apiErrors.length > 0) {
-		resultHTML += `
-			<details style="margin-top: 1rem; padding: 1rem; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 12px;">
-				<summary style="cursor: pointer; font-weight: 600; color: #92400e; user-select: none;">
-					⚠️ Some API calls had issues (${data.apiErrors.length})
-				</summary>
-				<ul style="margin-top: 0.75rem; padding-left: 1.5rem; font-size: 0.9rem; color: #78350f;">
-					${data.apiErrors
-						.map(
-							(error) => `
-						<li style="margin: 0.5rem 0;"><strong>${error.api}:</strong> ${error.message}</li>
-					`
-						)
-						.join('')}
-				</ul>
-			</details>
-		`;
-	}
-
-	resultHTML += `</div>`;
-	resultContainer.innerHTML = resultHTML;
-
-	// Insert result after form
+	resultContainer.appendChild(details);
 	elements.form.parentNode.insertBefore(resultContainer, elements.form.nextSibling);
 
-	// Scroll to result
-	setTimeout(() => {
-		resultContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-	}, 100);
+	setTimeout(() => resultContainer.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
 }
 
-// Handle submission errors
 function handleSubmissionError(data) {
 	const errorMsg = data.error || 'Submission failed. Please try again.';
 	showError(errorMsg);
-
-	// If Turnstile error, reset it
 	if (data.code === 'INVALID_TURNSTILE' || errorMsg.toLowerCase().includes('turnstile')) {
 		resetTurnstile();
 	}
 }
 
-// Setup animations for form elements
 function setupAnimations() {
-	const observer = new IntersectionObserver(
-		(entries) => {
-			entries.forEach((entry, index) => {
-				if (entry.isIntersecting) {
-					setTimeout(() => {
-						entry.target.style.opacity = '1';
-						entry.target.style.transform = 'translateY(0)';
-					}, index * 50);
-					observer.unobserve(entry.target);
-				}
-			});
-		},
-		{ threshold: 0.1 }
-	);
+	if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-	// Animate form groups and quick links
-	document.querySelectorAll('.form-group, .quick-link').forEach((el, index) => {
+	const targets = document.querySelectorAll('.form-group, .quick-link');
+	targets.forEach((el) => {
 		el.style.opacity = '0';
 		el.style.transform = 'translateY(20px)';
 		el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-		el.style.transitionDelay = `${index * 0.05}s`;
-		observer.observe(el);
+	});
+
+	requestAnimationFrame(() => {
+		targets.forEach((el, index) => {
+			setTimeout(() => {
+				el.style.opacity = '1';
+				el.style.transform = 'translateY(0)';
+			}, index * 50);
+		});
 	});
 }
 
-// Handle page visibility changes - refresh Turnstile if needed
 document.addEventListener('visibilitychange', function () {
 	if (!document.hidden && state.turnstileLoaded && window.turnstile) {
-		// Check if token is still valid when user returns to page
 		if (!elements.turnstileResponse.value) {
-			console.log('Page visible again, checking Turnstile status');
-			// Widget might have expired, try to reset it
 			setTimeout(() => {
-				if (!elements.turnstileResponse.value) {
-					resetTurnstile();
-				}
+				if (!elements.turnstileResponse.value) resetTurnstile();
 			}, 1000);
 		}
 	}
