@@ -188,6 +188,7 @@ body {
 
 /* Quick Links Section */
 .quick-links-section {
+	margin-top: 3rem;
 	margin-bottom: 3rem;
 }
 
@@ -814,11 +815,22 @@ footer {
 /* Responsive Design */
 @media (max-width: 768px) {
 	.hero {
-		padding: 3rem 1rem 2rem;
+		padding: 2rem 1rem 1.5rem;
+	}
+
+	.shield-icon {
+		padding: 1rem;
+		border-radius: 18px;
+		margin-bottom: 1rem;
+	}
+
+	.shield-icon svg {
+		width: 48px;
+		height: 48px;
 	}
 
 	.hero h1 {
-		font-size: 2rem;
+		font-size: 1.85rem;
 	}
 
 	.hero-subtitle {
@@ -828,6 +840,10 @@ footer {
 	.form-section {
 		padding: 1.5rem;
 		border-radius: 20px;
+	}
+
+	.quick-links-section {
+		margin-top: 2rem;
 	}
 
 	.form-grid {
@@ -846,11 +862,11 @@ footer {
 
 @media (max-width: 480px) {
 	body {
-		font-size: 14px;
+		font-size: 15px;
 	}
 
 	.form-section {
-		padding: 1.25rem;
+		padding: 1rem;
 		border-radius: 16px;
 	}
 

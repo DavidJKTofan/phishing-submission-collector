@@ -12,6 +12,7 @@ const elements = {
 	submitBtn: null,
 	errorMessage: null,
 	warningMessage: null,
+	submitHint: null,
 	turnstileContainer: null,
 	turnstileError: null,
 	turnstileResponse: null,
@@ -45,6 +46,7 @@ function initializeElements() {
 	elements.submitBtn = document.getElementById('submit-btn');
 	elements.errorMessage = document.getElementById('error-message');
 	elements.warningMessage = document.getElementById('warning-message');
+	elements.submitHint = document.getElementById('submit-hint');
 	elements.turnstileContainer = document.getElementById('turnstile-container');
 	elements.turnstileError = document.getElementById('turnstile-error');
 	elements.turnstileResponse = document.getElementById('cf-turnstile-response');
@@ -78,6 +80,9 @@ function renderTurnstileWidget() {
 			size: 'normal',
 			retry: 'auto',
 			'retry-interval': 8000,
+			'refresh-expired': 'manual',
+			'refresh-timeout': 'manual',
+			'response-field': false,
 			callback: handleTurnstileSuccess,
 			'expired-callback': handleTurnstileExpired,
 			'error-callback': handleTurnstileError,
@@ -154,6 +159,14 @@ function resetTurnstile() {
 
 function setSubmitEnabled(enabled) {
 	elements.submitBtn.disabled = !enabled || state.isSubmitting;
+	if (!elements.submitHint) return;
+	if (state.isSubmitting) {
+		elements.submitHint.textContent = 'Submitting report...';
+	} else if (enabled) {
+		elements.submitHint.textContent = 'Security check complete. You can submit the report.';
+	} else {
+		elements.submitHint.textContent = 'Complete the security check above to enable submission.';
+	}
 }
 
 function setupFormValidation() {
@@ -454,9 +467,7 @@ function handleSubmissionSuccess(data) {
 function handleSubmissionError(data) {
 	const errorMsg = data.error || 'Submission failed. Please try again.';
 	showError(errorMsg);
-	if (data.code === 'INVALID_TURNSTILE' || errorMsg.toLowerCase().includes('turnstile')) {
-		resetTurnstile();
-	}
+	resetTurnstile();
 }
 
 function setupAnimations() {

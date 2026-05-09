@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS reports_v2 (
     id TEXT PRIMARY KEY,                                                                                -- UUID for each submission
     name TEXT NOT NULL CHECK(length(name) BETWEEN 2 AND 100),                                           -- Name of the report
     category TEXT NOT NULL CHECK(category IN ('Phishing', 'Crypto Scam', 'Malware', 'Spam', 'Other')),  -- Category of the report
-    source TEXT NOT NULL CHECK(length(source) BETWEEN 2 AND 100),                                       -- Source of the threat
+    source TEXT NOT NULL CHECK(source IN ('Email', 'SMS', 'Social Media', 'Website', 'Other')),         -- Source of the threat
     url TEXT NOT NULL,                                                                                  -- URL being reported
     description TEXT CHECK(length(description) <= 500),                                                 -- Description of the threat
     urlscan_uuid TEXT,                                                                                  -- URLScan.io UUID
@@ -15,8 +15,3 @@ CREATE TABLE IF NOT EXISTS reports_v2 (
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,                                                       -- Unix timestamp to store the submission time in Coordinated Universal Time (UTC)
     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
--- Create indexes for performance
-CREATE INDEX IF NOT EXISTS idx_reports_category ON reports_v2(category);
-CREATE INDEX IF NOT EXISTS idx_reports_timestamp ON reports_v2(timestamp);
-CREATE INDEX IF NOT EXISTS idx_reports_url ON reports_v2(url);

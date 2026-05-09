@@ -8,11 +8,12 @@ A simple tool built on the [Cloudflare Developer Platform](https://developers.cl
 project/
 │
 ├── src/
-│   └── index.js                # Cloudflare Workers script
+│   └── index.ts                # Cloudflare Workers script
 │
 ├── databases/
 │   ├── 001_create_table.sql    # SQL to set up D1 database
-│   └── 002_seed_data.sql       # Optional: Test data for development
+│   ├── 002_seed_data.sql       # Optional: Test data for development
+│   └── 003_drop_unused_indexes.sql
 │
 ├── public/
 │   ├── index.html              # Submission form
@@ -23,7 +24,7 @@ project/
 │       ├── scripts.js          # Frontend scripts (form, Turnstile)
 │       └── styles.css          # Frontend stylesheet
 │
-├── wrangler.toml               # Cloudflare Workers configuration
+├── wrangler.jsonc              # Cloudflare Workers configuration
 └── .dev.vars.example           # Template for local secrets (copy to .dev.vars)
 ```
 
@@ -42,15 +43,14 @@ The following APIs are integrated into this project for phishing analysis and sc
 
 ### Secrets (per-environment, set via dashboard or `wrangler secret put`)
 
-These are accessed at runtime as `env.<NAME>` and never appear in `wrangler.toml`:
+These are accessed at runtime as `env.<NAME>` and never appear in `wrangler.jsonc`:
 
 ```
 URLSCAN_API_KEY="<YOUR_API_KEY_HERE>"
 VIRUSTOTAL_API_KEY="<YOUR_API_KEY_HERE>"
 IPQS_API_KEY="<YOUR_API_KEY_HERE>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
-CLOUDFLARE_USER_EMAIL="<YOUR_CLOUDFLARE_USER_EMAIL>"
-CLOUDFLARE_API_KEY="<YOUR_CLOUDFLARE_API_KEY>"
+CLOUDFLARE_API_TOKEN="<LEAST_PRIVILEGE_CLOUDFLARE_API_TOKEN>"
 TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"
 ```
 
@@ -62,23 +62,23 @@ npx wrangler secret put <KEY>
 
 See [Cloudflare Workers Secrets](https://developers.cloudflare.com/workers/configuration/secrets/) for details.
 
-### Public vars (declared in `wrangler.toml [vars]`)
+### Public vars (declared in `wrangler.jsonc` `vars`)
 
-Both are optional. If unset, the worker falls back to permissive defaults so existing deployments keep working.
+These should be pinned to the exact production origin and hostname.
 
 | Var | Purpose | Example |
 |---|---|---|
-| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist for `/submit` and `/api/report/`. Set to `*` (default) to disable. | `https://report.example.com` |
-| `TURNSTILE_EXPECTED_HOSTNAMES` | Comma-separated allowlist for the `hostname` returned by Turnstile siteverify. Disabled if unset. | `report.example.com` |
+| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist for `/submit` and `/api/report/`. | `https://report.example.com` |
+| `TURNSTILE_EXPECTED_HOSTNAMES` | Comma-separated allowlist for the `hostname` returned by Turnstile Siteverify. | `report.example.com` |
 
 ## App Security
 
-- **Cloudflare Turnstile** — required to submit. The sitekey is set as `data-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); the secret is verified server-side with HTTP `response.ok` checking, an idempotency key, a 5 s timeout via `AbortController`, and an optional hostname allowlist (`TURNSTILE_EXPECTED_HOSTNAMES`). All five Turnstile callbacks (`callback`, `expired-callback`, `error-callback`, `timeout-callback`, `unsupported-callback`) are wired with retry/reset logic.
-- **CORS** — origin allowlist driven by `ALLOWED_ORIGINS` with a `Vary: Origin` header.
+- **Cloudflare Turnstile** — required to submit. The sitekey is set as `data-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); the secret is verified server-side with HTTP `response.ok` checking, an idempotency key, a 5 s timeout via `AbortController`, strict action validation (`submit-report`), and hostname validation (`TURNSTILE_EXPECTED_HOSTNAMES`). All five Turnstile callbacks (`callback`, `expired-callback`, `error-callback`, `timeout-callback`, `unsupported-callback`) are wired with retry/reset logic.
+- **CORS** — exact-origin allowlist driven by `ALLOWED_ORIGINS` with a `Vary: Origin` header. Same-origin requests are always allowed.
 - **Security response headers** — every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, and a restrictive `Permissions-Policy`. HTML responses additionally get a `Content-Security-Policy` that allows the Turnstile script/iframe.
-- **Body size guard** — `/submit` rejects requests with `Content-Length > 50 000` bytes (`413`).
+- **Body size guard** — `/submit` rejects declared or streamed bodies over 50,000 bytes (`413`).
 - **Input validation** — server-side via the `URL` constructor + protocol allowlist + length cap; category and source restricted to fixed enums.
-- **D1 prepared statements** — all reads/writes use `?` placeholders; reads validate UUIDv4 format before querying.
+- **D1 prepared statements** — all reads/writes use `?` placeholders; reads validate UUIDv4 format before querying; transient D1 write failures are retried with bounded jittered backoff.
 
 ## Accessibility & UX
 
@@ -94,12 +94,12 @@ Both are optional. If unset, the worker falls back to permissive defaults so exi
 
    **Option A — use dashboard secrets directly (no local file needed):**
    ```
-   npx wrangler dev --remote
+   npm run dev -- --remote
    ```
 
    **Option B — local-only secrets:** copy [.dev.vars.example](.dev.vars.example) to `.dev.vars` (gitignored), fill in values, then:
    ```
-   npx wrangler dev
+   npm run dev
    ```
 
 4. Open <http://localhost:8787/>.
@@ -107,8 +107,10 @@ Both are optional. If unset, the worker falls back to permissive defaults so exi
 For deployment guidance, see the [Workers static assets docs](https://developers.cloudflare.com/workers/static-assets/get-started/#deploy-a-full-stack-application).
 
 ```
-npx wrangler deploy
+npm run deploy
 ```
+
+`wrangler.jsonc` disables `workers.dev`; keep the production Custom Domain or route attached in Cloudflare, or add it to `wrangler.jsonc` with `routes` once the zone ownership details are confirmed.
 
 ## D1 Reports Database
 
@@ -128,6 +130,12 @@ npx wrangler d1 execute reports_db --remote --file ./databases/001_create_table.
 
 ```
 npx wrangler d1 execute reports_db --remote --file ./databases/002_seed_data.sql
+```
+
+Apply follow-up migrations in order when updating an existing database:
+
+```
+npx wrangler d1 execute reports_db --remote --file ./databases/003_drop_unused_indexes.sql
 ```
 
 Validate the setup (table is `reports_v2`):
@@ -151,14 +159,13 @@ For schema changes, create new SQL files (e.g., `003_add_new_column.sql`) and ma
 
 ## Reporting Entities
 
-The submission form ([public/report.html](public/report.html)) is the canonical, regularly-updated directory of reporting destinations (browsers, URL analysis tools, malware analysis, security services, regional CERTs, email-provider phishing reports). Live preview: <https://report.automatic-demo.com/report.html>.
+The report page ([public/report.html](public/report.html)) is the canonical, regularly-updated directory of reporting destinations (browsers, URL analysis tools, malware analysis, security services, regional CERTs, email-provider phishing reports). Live preview: <https://report.automatic-demo.com/report.html>.
 
 ## Known Limitations / Future Work
 
-- **No rate limiting** — recommend adding a Cloudflare Rate Limiting Rule on `/submit` (or KV-backed token bucket).
 - **`reports_v2.last_updated`** — declared but never updated (no trigger). Either remove or wire up an `UPDATE` trigger.
 - **`/api/report/:id` is publicly readable by UUID** — acceptable given UUIDv4 entropy, but no auth.
-- **TypeScript migration** — `src/index.js` is plain JS; per-project conventions prefer TypeScript for new code.
+- **Rate limiting** — deploy should include a Cloudflare Rate Limiting Rule for `/submit`; keep this outside app code when possible.
 
 ## Disclaimer
 

@@ -1,16 +1,15 @@
 # Local dev secrets for `wrangler dev` (without --remote).
 # Copy to `.dev.vars` (already in .gitignore) and fill in real values.
 # In production these are read from the Cloudflare dashboard secrets — do NOT
-# put them in wrangler.toml.
+# put them in wrangler.jsonc.
 
 TURNSTILE_SECRET_KEY=""
 URLSCAN_API_KEY=""
 VIRUSTOTAL_API_KEY=""
 IPQS_API_KEY=""
 CLOUDFLARE_ACCOUNT_ID=""
-CLOUDFLARE_API_KEY=""
-CLOUDFLARE_USER_EMAIL=""
+CLOUDFLARE_API_TOKEN=""
 
-# Optional public vars (also live in wrangler.toml [vars]; .dev.vars wins locally).
+# Optional public vars (also live in wrangler.jsonc `vars`; .dev.vars wins locally).
 # ALLOWED_ORIGINS="http://localhost:8787"
 # TURNSTILE_EXPECTED_HOSTNAMES="localhost"
