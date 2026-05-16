@@ -545,9 +545,12 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 				name: formData.name,
 				category: formData.category,
 				source: formData.source,
-				submittedUrl: formData.url,
+				submittedUrl: formData.scanUrl,
 				normalizedHostname: formData.normalizedHostname,
 				description: formData.description,
+				urlscanUuid: result.urlscan_uuid,
+				virustotalScanId: result.virustotal_scan_id,
+				cloudflareScanUuid: result.cloudflare_scan_uuid,
 			},
 			retention: {
 				successRetention: '30 days',

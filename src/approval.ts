@@ -29,6 +29,9 @@ export type PhishingHostnameWorkflowParams = {
 	submittedUrl: string;
 	normalizedHostname: string;
 	description: string;
+	urlscanUuid?: string;
+	virustotalScanId?: string;
+	cloudflareScanUuid?: string;
 };
 
 export type ApprovalEventPayload = {
@@ -292,15 +295,42 @@ async function fetchCloudflareOneListItems(env: ApprovalEnv, listId: string): Pr
 }
 
 function buildDiscordApprovalContent(report: PhishingHostnameWorkflowParams): string {
-	const description = report.description ? `\nDescription: ${truncateDiscordLine(report.description, 300)}` : '';
+	const description = report.description
+		? `\n- **Description:** ${escapeDiscordMarkdown(truncateDiscordLine(report.description, 240))}`
+		: '';
 	return [
-		'Phishing hostname approval required',
-		`Report: ${report.reportId}`,
-		`Hostname: ${report.normalizedHostname}`,
-		`Submitted: ${truncateDiscordLine(report.submittedUrl, 500)}`,
-		`Category: ${report.category}`,
-		`Source: ${report.source}${description}`,
+		'**Phishing hostname approval required**',
+		'',
+		'**Submission**',
+		`- **Report ID:** \`${report.reportId}\``,
+		`- **Title:** ${escapeDiscordMarkdown(truncateDiscordLine(report.name, 120))}`,
+		`- **Hostname:** \`${report.normalizedHostname}\``,
+		`- **Submitted URL:** ${formatDiscordUrl(report.submittedUrl, 360)}`,
+		`- **Category:** ${report.category}`,
+		`- **Source:** ${report.source}${description}`,
+		'',
+		'**Review links**',
+		...buildDiscordReviewLinks(report),
 	].join('\n');
+}
+
+function buildDiscordReviewLinks(report: PhishingHostnameWorkflowParams): string[] {
+	const cloudflareLabel = report.cloudflareScanUuid ? 'Open report' : 'Search or scan URL';
+	const cloudflareUrl = report.cloudflareScanUuid
+		? cloudflareUrlScannerReportUrl(report.cloudflareScanUuid)
+		: cloudflareUrlScannerSearchUrl(report.submittedUrl);
+	const links = [`- **Cloudflare URL Scanner:** ${formatDiscordLink(cloudflareLabel, cloudflareUrl)}`];
+
+	if (report.urlscanUuid) {
+		const urlscanResultUrl = `https://urlscan.io/result/${report.urlscanUuid}/`;
+		links.push(`- **urlscan.io:** ${formatDiscordLink('Open report', urlscanResultUrl)}`);
+	}
+	if (report.virustotalScanId) {
+		const virusTotalResultUrl = `https://www.virustotal.com/gui/url/${report.virustotalScanId}`;
+		links.push(`- **VirusTotal:** ${formatDiscordLink('Open report', virusTotalResultUrl)}`);
+	}
+
+	return links;
 }
 
 function buildDiscordApprovalComponents(instanceId: string, disabled: boolean): Array<{ type: number; components: unknown[] }> {
@@ -325,7 +355,7 @@ function buildDiscordDecisionMessageData(interaction: DiscordInteraction, approv
 	const customId = interaction.data?.custom_id || '';
 	const instanceId = customId.split(':')[1] || '';
 	return {
-		content: `${currentContent}\n\nDecision: ${decision} by <@${actorId}>`,
+		content: `${currentContent}\n\n**Decision:** ${decision} by <@${actorId}>`,
 		allowed_mentions: { parse: [] },
 		components: buildDiscordApprovalComponents(instanceId, true),
 	};
@@ -496,4 +526,34 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 function truncateDiscordLine(value: string, maxLength: number): string {
 	const compact = value.replace(/\s+/g, ' ').trim();
 	return compact.length > maxLength ? `${compact.slice(0, maxLength - 3)}...` : compact;
+}
+
+function escapeDiscordMarkdown(value: string): string {
+	return value.replace(/([\\*_`~|])/g, '\\$1');
+}
+
+function formatDiscordUrl(url: string, maxLength: number): string {
+	const compact = truncateDiscordLine(url, maxLength);
+	return compact === url.trim() && isHttpUrl(compact) ? `<${compact}>` : escapeDiscordMarkdown(compact);
+}
+
+function formatDiscordLink(label: string, url: string): string {
+	return `[${label}](${url})`;
+}
+
+function cloudflareUrlScannerReportUrl(uuid: string): string {
+	return `https://radar.cloudflare.com/scan/${encodeURIComponent(uuid)}/summary`;
+}
+
+function cloudflareUrlScannerSearchUrl(submittedUrl: string): string {
+	return `https://radar.cloudflare.com/scan?url=${encodeURIComponent(submittedUrl)}`;
+}
+
+function isHttpUrl(value: string): boolean {
+	try {
+		const url = new URL(value);
+		return url.protocol === 'http:' || url.protocol === 'https:';
+	} catch {
+		return false;
+	}
 }

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test, { afterEach, before } from 'node:test';
 
-import { addHostnameToCloudflareOneList, handleDiscordInteraction } from '/private/tmp/phishing-submission-collector-tests/src/approval.js';
+import {
+	addHostnameToCloudflareOneList,
+	handleDiscordInteraction,
+	sendDiscordApprovalMessage,
+} from '/private/tmp/phishing-submission-collector-tests/src/approval.js';
 
 const originalFetch = globalThis.fetch;
 let keyPair;
@@ -53,7 +57,7 @@ test('sends approval event for Discord approve button', async () => {
 			interactionId: 'interaction-1',
 		},
 	});
-	assert.match(body.data.content, /Decision: Approved/);
+	assert.match(body.data.content, /Decision:\*\* Approved/);
 });
 
 test('sends denial event for Discord deny button', async () => {
@@ -75,7 +79,7 @@ test('sends denial event for Discord deny button', async () => {
 	assert.equal(body.type, 7);
 	assert.equal(instance.events[0].payload.approved, false);
 	assert.equal(instance.events[0].payload.actorUsername, 'Bob');
-	assert.match(body.data.content, /Decision: Denied/);
+	assert.match(body.data.content, /Decision:\*\* Denied/);
 });
 
 test('defers Discord button clicks when execution context is available', async () => {
@@ -105,7 +109,37 @@ test('defers Discord button clicks when execution context is available', async (
 	assert.equal(instance.events[0].payload.approved, true);
 	assert.equal(calls[0].url, 'https://discord.com/api/v10/webhooks/app-1/interaction-token/messages/@original');
 	assert.equal(calls[0].init.method, 'PATCH');
-	assert.match(JSON.parse(calls[0].init.body).content, /Decision: Approved/);
+	assert.match(JSON.parse(calls[0].init.body).content, /Decision:\*\* Approved/);
+});
+
+test('sends formatted Discord approval messages with scanner report links', async () => {
+	const calls = mockFetch(() => jsonResponse({ id: 'discord-message-1' }));
+	const report = {
+		reportId: '60e1a458-4ad0-44c4-a4be-d211bb321d7a',
+		name: 'Ali Anza portal',
+		category: 'Phishing',
+		source: 'Website',
+		submittedUrl: 'https://portalalianza.azurewebsites.net/',
+		normalizedHostname: 'portalalianza.azurewebsites.net',
+		description: 'Impersonating a financial institution.',
+		urlscanUuid: '019cf7ef-8a8c-7618-a8c1-cd3b11390427',
+		virustotalScanId: 'aHR0cHM6Ly9wb3J0YWxhbGlhbnphLmF6dXJld2Vic2l0ZXMubmV0Lw',
+		cloudflareScanUuid: '095be615-a8ad-4c33-8e9c-c7612fbf6c9f',
+	};
+
+	const result = await sendDiscordApprovalMessage(makeDiscordEnv(makeWorkflowInstance('waiting')), report, 'workflow-1');
+	const body = JSON.parse(calls[0].init.body);
+
+	assert.deepEqual(result, { id: 'discord-message-1' });
+	assert.equal(calls[0].url, 'https://discord.com/api/v10/channels/channel-1/messages');
+	assert.match(body.content, /\*\*Phishing hostname approval required\*\*/);
+	assert.match(body.content, /\*\*Submission\*\*/);
+	assert.match(body.content, /\*\*Review links\*\*/);
+	assert.match(body.content, /https:\/\/radar.cloudflare.com\/scan\/095be615-a8ad-4c33-8e9c-c7612fbf6c9f\/summary/);
+	assert.match(body.content, /https:\/\/urlscan.io\/result\/019cf7ef-8a8c-7618-a8c1-cd3b11390427\//);
+	assert.match(body.content, /https:\/\/www.virustotal.com\/gui\/url\/aHR0cHM6Ly9wb3J0YWxhbGlhbnphLmF6dXJld2Vic2l0ZXMubmV0Lw/);
+	assert.deepEqual(body.allowed_mentions, { parse: [] });
+	assert.equal(body.components[0].components[0].custom_id, 'approve:workflow-1');
 });
 
 test('rejects Discord interactions with invalid signatures', async () => {

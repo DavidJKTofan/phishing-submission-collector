@@ -11,9 +11,9 @@ The application has two connected flows: public report submission and human appr
 3. Optional scanner APIs run in parallel: urlscan.io, VirusTotal, IPQualityScore, and Cloudflare URL Scanner.
 4. The report is saved to D1 before any approval action is requested.
 5. The Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Cloudflare Workflow.
-6. The Workflow sends a Discord message with **Approve** and **Deny** buttons.
+6. The Workflow sends a formatted Discord message with scanner review links and **Approve** / **Deny** buttons.
 7. Discord posts button clicks to `/discord/interactions`. The Worker verifies Discord's request signature and sends a Workflow event.
-8. If denied, expired, or failed, the Workflow only updates D1.
+8. If denied, expired, or failed, the already-saved D1 report remains in place and the Workflow only updates D1 status fields.
 9. If approved, the Workflow checks the configured Cloudflare One `DOMAIN` list.
 10. If the hostname is already present, the Workflow records `skipped_duplicate`. Otherwise it appends the hostname and records `added`.
 
@@ -24,9 +24,9 @@ flowchart TD
     C --> D["Run optional scanner APIs"]
     D --> E["Save report to D1"]
     E --> F["Start Cloudflare Workflow"]
-    F --> G["Send Discord approval message"]
+    F --> G["Send formatted Discord approval message with review links"]
     G --> H["Wait for approval event"]
-    H -->|Deny or timeout| I["Update D1 only"]
+    H -->|Deny or timeout| I["Update existing D1 status only"]
     H -->|Approve| J["Check Cloudflare One hostname list"]
     J -->|Already exists| K["Record skipped_duplicate"]
     J -->|New hostname| L["Append to configured hostname list"]
@@ -134,7 +134,9 @@ The Cloudflare One hostname approval flow uses a Discord app/bot message with na
    ```
 3. Set the Discord secrets above via `wrangler secret put`.
 
-After a report is stored in D1, the Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Workflow. Approval adds the exact normalized hostname to the Cloudflare One `DOMAIN` list configured by `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`; denial or timeout only updates D1.
+After a report is stored in D1, the Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Workflow. Approval adds the exact normalized hostname to the Cloudflare One `DOMAIN` list configured by `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`; denial or timeout only updates the existing D1 row.
+
+The Discord approval message includes the report ID, submitted URL, normalized hostname, category, source, description, and review links. When available, it links directly to the Cloudflare URL Scanner, urlscan.io, and VirusTotal reports; otherwise it includes a Cloudflare URL Scanner search/scan link for the submitted URL.
 
 Discord validates the Interactions Endpoint URL by sending a signed `PING` request. If validation fails:
 
