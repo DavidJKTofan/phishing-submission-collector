@@ -14,6 +14,7 @@ const DISCORD_RESPONSE_PONG = 1;
 const DISCORD_RESPONSE_CHANNEL_MESSAGE = 4;
 const DISCORD_RESPONSE_DEFERRED_UPDATE_MESSAGE = 6;
 const DISCORD_RESPONSE_UPDATE_MESSAGE = 7;
+const DISCORD_SUPPRESS_EMBEDS_FLAG = 1 << 2;
 const DISCORD_EPHEMERAL_FLAG = 1 << 6;
 
 export const APPROVAL_EVENT_TYPE = 'hostname-approval';
@@ -223,6 +224,7 @@ export async function sendDiscordApprovalMessage(
 		},
 		body: JSON.stringify({
 			content: buildDiscordApprovalContent(report),
+			flags: DISCORD_SUPPRESS_EMBEDS_FLAG,
 			allowed_mentions: { parse: [] },
 			components: buildDiscordApprovalComponents(instanceId, false),
 		}),
@@ -356,6 +358,7 @@ function buildDiscordDecisionMessageData(interaction: DiscordInteraction, approv
 	const instanceId = customId.split(':')[1] || '';
 	return {
 		content: `${currentContent}\n\n**Decision:** ${decision} by <@${actorId}>`,
+		flags: DISCORD_SUPPRESS_EMBEDS_FLAG,
 		allowed_mentions: { parse: [] },
 		components: buildDiscordApprovalComponents(instanceId, true),
 	};

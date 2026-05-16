@@ -46,6 +46,7 @@ test('sends approval event for Discord approve button', async () => {
 	const body = await response.json();
 	assert.equal(response.status, 200);
 	assert.equal(body.type, 7);
+	assert.equal(body.data.flags, 4);
 	assert.equal(instance.events.length, 1);
 	assert.deepEqual(instance.events[0], {
 		type: 'hostname-approval',
@@ -77,6 +78,7 @@ test('sends denial event for Discord deny button', async () => {
 	const body = await response.json();
 	assert.equal(response.status, 200);
 	assert.equal(body.type, 7);
+	assert.equal(body.data.flags, 4);
 	assert.equal(instance.events[0].payload.approved, false);
 	assert.equal(instance.events[0].payload.actorUsername, 'Bob');
 	assert.match(body.data.content, /Decision:\*\* Denied/);
@@ -109,7 +111,9 @@ test('defers Discord button clicks when execution context is available', async (
 	assert.equal(instance.events[0].payload.approved, true);
 	assert.equal(calls[0].url, 'https://discord.com/api/v10/webhooks/app-1/interaction-token/messages/@original');
 	assert.equal(calls[0].init.method, 'PATCH');
-	assert.match(JSON.parse(calls[0].init.body).content, /Decision:\*\* Approved/);
+	const updateBody = JSON.parse(calls[0].init.body);
+	assert.equal(updateBody.flags, 4);
+	assert.match(updateBody.content, /Decision:\*\* Approved/);
 });
 
 test('sends formatted Discord approval messages with scanner report links', async () => {
@@ -138,6 +142,7 @@ test('sends formatted Discord approval messages with scanner report links', asyn
 	assert.match(body.content, /https:\/\/radar.cloudflare.com\/scan\/095be615-a8ad-4c33-8e9c-c7612fbf6c9f\/summary/);
 	assert.match(body.content, /https:\/\/urlscan.io\/result\/019cf7ef-8a8c-7618-a8c1-cd3b11390427\//);
 	assert.match(body.content, /https:\/\/www.virustotal.com\/gui\/url\/aHR0cHM6Ly9wb3J0YWxhbGlhbnphLmF6dXJld2Vic2l0ZXMubmV0Lw/);
+	assert.equal(body.flags, 4);
 	assert.deepEqual(body.allowed_mentions, { parse: [] });
 	assert.equal(body.components[0].components[0].custom_id, 'approve:workflow-1');
 });
