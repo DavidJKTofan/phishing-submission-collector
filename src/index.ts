@@ -10,6 +10,8 @@ import {
 } from './approval';
 import type { ApprovalEventPayload, ApprovalStatus, CloudflareListStatus, PhishingHostnameWorkflowParams } from './approval';
 import { HostnameNormalizationError, buildScanUrl, normalizeReportedHostname } from './hostname';
+import { runProviderReporting, serializeProviderResponse } from './provider-reporting';
+import type { ProviderReportResult } from './provider-reporting';
 
 const SECURITY_HEADERS = {
 	'X-Content-Type-Options': 'nosniff',
@@ -40,6 +42,7 @@ const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 const APPROVAL_TIMEOUT = '7 days';
 const DISCORD_APPROVAL_SEND_TIMEOUT = '30 seconds';
 const CLOUDFLARE_LIST_WRITE_TIMEOUT = '1 minute';
+const PROVIDER_REPORTING_TIMEOUT = '3 minutes';
 
 const ALLOWED_CATEGORIES = ['Phishing', 'Crypto Scam', 'Malware', 'Spam', 'Other'] as const;
 const ALLOWED_SOURCES = ['Email', 'SMS', 'Social Media', 'Website', 'Other'] as const;
@@ -70,6 +73,7 @@ type SubmissionData = {
 type SubmissionResult = {
 	success: boolean;
 	id: string;
+	submitted_url: string;
 	apiErrors: ApiError[];
 	normalized_hostname: string;
 	approval_status: ApprovalStatus;
@@ -179,14 +183,43 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 			await step.do('record Cloudflare One list failure', async () => {
 				await updateCloudflareListResult(this.env.DB, report.reportId, 'failed', message);
 			});
-			return { status: 'failed', reportId: report.reportId, hostname: report.normalizedHostname, error: message };
+			listResult = { status: 'failed', error: message };
 		}
 
-		await step.do('record Cloudflare One list result', async () => {
-			await updateCloudflareListResult(this.env.DB, report.reportId, listResult.status, listResult.error);
-		});
+		if (listResult.status !== 'failed') {
+			await step.do('record Cloudflare One list result', async () => {
+				await updateCloudflareListResult(this.env.DB, report.reportId, listResult.status, listResult.error);
+			});
+		}
 
-		return { status: listResult.status, reportId: report.reportId, hostname: report.normalizedHostname };
+		let providerReports: ProviderReportResult[] = [];
+		try {
+			const providerReportsJson = await step.do(
+				'report approved URL to providers',
+				{ retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' }, timeout: PROVIDER_REPORTING_TIMEOUT },
+				async () => JSON.stringify(await runProviderReporting(this.env, report))
+			);
+			providerReports = parseProviderReportResults(providerReportsJson);
+		} catch (error) {
+			console.error(JSON.stringify({ event: 'provider_reporting_workflow_error', reportId: report.reportId, error: errorMessage(error) }));
+		}
+
+		if (providerReports.length > 0) {
+			try {
+				await step.do('record provider reporting results', async () => {
+					await saveProviderReportResults(this.env.DB, report.reportId, providerReports);
+				});
+			} catch (error) {
+				console.error(JSON.stringify({ event: 'provider_reporting_db_error', reportId: report.reportId, error: errorMessage(error) }));
+			}
+		}
+
+		return {
+			status: listResult.status,
+			reportId: report.reportId,
+			hostname: report.normalizedHostname,
+			providerReports: providerReports.map((item) => ({ provider: item.provider, status: item.status })),
+		};
 	}
 }
 
@@ -490,6 +523,7 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 	const result: SubmissionResult = {
 		success: true,
 		id,
+		submitted_url: formData.scanUrl,
 		apiErrors: [],
 		normalized_hostname: formData.normalizedHostname,
 		approval_status: 'pending',
@@ -575,7 +609,7 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 			event: 'submission_complete',
 			reportId: id,
 			requestId,
-			successfulApis: Object.keys(result).filter((k) => !['success', 'id', 'apiErrors'].includes(k)).length,
+			successfulApis: [result.urlscan_uuid, result.virustotal_scan_id, result.ipqs_scan, result.cloudflare_scan_uuid].filter(Boolean).length,
 			failedApis: result.apiErrors.length,
 		})
 	);
@@ -854,6 +888,39 @@ async function updateCloudflareListResult(
 	);
 }
 
+async function saveProviderReportResults(db: D1Database, reportId: string, results: ProviderReportResult[]): Promise<void> {
+	for (const result of results) {
+		await runD1WriteWithRetry(() =>
+			db
+				.prepare(
+					`INSERT INTO provider_reports (
+						report_id, provider, status, eligibility_reason, reference_id,
+						http_status, response_json, error
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+					ON CONFLICT(report_id, provider) DO UPDATE SET
+						status = excluded.status,
+						eligibility_reason = excluded.eligibility_reason,
+						reference_id = excluded.reference_id,
+						http_status = excluded.http_status,
+						response_json = excluded.response_json,
+						error = excluded.error,
+						last_updated = CURRENT_TIMESTAMP`
+				)
+				.bind(
+					reportId,
+					result.provider,
+					result.status,
+					result.eligibilityReason || null,
+					result.referenceId || null,
+					result.httpStatus || null,
+					serializeProviderResponse(result.responseJson),
+					result.error || null
+				)
+				.run()
+		);
+	}
+}
+
 async function runD1WriteWithRetry<T>(operation: () => Promise<T>, maxAttempts = 3): Promise<T> {
 	let lastError: unknown;
 	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -896,10 +963,30 @@ async function getReportFromDB(db: D1Database, id: string | undefined): Promise<
 	if (!id || !uuidRegex.test(id)) throw new HttpError(400, 'Invalid Report ID format', 'INVALID_REPORT_ID');
 
 	try {
-		return await db.prepare(`SELECT ${REPORT_COLUMNS} FROM reports_v2 WHERE id = ?`).bind(id).first<Record<string, unknown>>();
+		const report = await db.prepare(`SELECT ${REPORT_COLUMNS} FROM reports_v2 WHERE id = ?`).bind(id).first<Record<string, unknown>>();
+		if (!report) return null;
+		return { ...report, provider_reports: await getProviderReportsFromDB(db, id) };
 	} catch (error) {
 		console.error('Database read error:', errorMessage(error));
 		throw new HttpError(500, 'Database read failed', 'DB_READ_FAILED');
+	}
+}
+
+async function getProviderReportsFromDB(db: D1Database, reportId: string): Promise<Array<Record<string, unknown>>> {
+	try {
+		const rows = await db
+			.prepare(
+				`SELECT provider, status, eligibility_reason, reference_id, http_status, response_json, error, created_at, last_updated
+				 FROM provider_reports
+				 WHERE report_id = ?
+				 ORDER BY provider`
+			)
+			.bind(reportId)
+			.all<Record<string, unknown>>();
+		return rows.results || [];
+	} catch (error) {
+		if (errorMessage(error).includes('no such table: provider_reports')) return [];
+		throw error;
 	}
 }
 
@@ -924,6 +1011,24 @@ function isAllowedCategory(value: string): value is Category {
 
 function isAllowedSource(value: string): value is Source {
 	return (ALLOWED_SOURCES as readonly string[]).includes(value);
+}
+
+function parseProviderReportResults(value: string): ProviderReportResult[] {
+	try {
+		const parsed = JSON.parse(value) as ProviderReportResult[];
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter(isProviderReportResult);
+	} catch {
+		return [];
+	}
+}
+
+function isProviderReportResult(value: unknown): value is ProviderReportResult {
+	if (!isRecord(value)) return false;
+	return (
+		['netcraft', 'cloudflare_abuse', 'microsoft_msrc'].includes(stringField(value.provider)) &&
+		['not_started', 'skipped', 'submitted', 'failed'].includes(stringField(value.status))
+	);
 }
 
 function requireSecret(value: string | undefined, name: string): string {

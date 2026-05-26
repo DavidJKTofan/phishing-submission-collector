@@ -12,7 +12,8 @@
 	"vars": {
 		"ALLOWED_ORIGINS": "https://report.automatic-demo.com",
 		"TURNSTILE_EXPECTED_HOSTNAMES": "report.automatic-demo.com",
-		"CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME": "0_PHISHING_Hostnames"
+		"CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME": "0_PHISHING_Hostnames",
+		"REPORTER_NAME": "PRIVATE"
 	},
 	"secrets": {
 		"required": [
@@ -20,6 +21,7 @@
 			"URLSCAN_API_KEY",
 			"VIRUSTOTAL_API_KEY",
 			"IPQS_API_KEY",
+			"REPORTER_EMAIL",
 			"CLOUDFLARE_ACCOUNT_ID",
 			"CLOUDFLARE_API_TOKEN",
 			"DISCORD_APPLICATION_PUBLIC_KEY",
@@ -44,5 +46,52 @@
 	"observability": {
 		"enabled": true,
 		"head_sampling_rate": 0.1
+	},
+	"env": {
+		"staging": {
+			"name": "phish-submission-collector-staging",
+			"workers_dev": false,
+			"preview_urls": false,
+			"routes": [
+				{
+					"pattern": "report-staging.automatic-demo.com",
+					"custom_domain": true
+				}
+			],
+			"vars": {
+				"ALLOWED_ORIGINS": "https://report-staging.automatic-demo.com",
+				"TURNSTILE_EXPECTED_HOSTNAMES": "report-staging.automatic-demo.com",
+				"CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME": "0_PHISHING_Hostnames_STAGING",
+				"REPORTER_NAME": "PRIVATE"
+			},
+			"secrets": {
+				"required": [
+					"TURNSTILE_SECRET_KEY",
+					"URLSCAN_API_KEY",
+					"VIRUSTOTAL_API_KEY",
+					"IPQS_API_KEY",
+					"REPORTER_EMAIL",
+					"CLOUDFLARE_ACCOUNT_ID",
+					"CLOUDFLARE_API_TOKEN",
+					"DISCORD_APPLICATION_PUBLIC_KEY",
+					"DISCORD_BOT_TOKEN",
+					"DISCORD_APPROVAL_CHANNEL_ID"
+				]
+			},
+			"workflows": [
+				{
+					"name": "phishing-hostname-approval-staging",
+					"binding": "PHISHING_HOSTNAME_WORKFLOW",
+					"class_name": "PhishingHostnameWorkflow"
+				}
+			],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "reports_db_staging",
+					"database_id": "f9cd2bb7-4e23-4865-8202-96c4bcb8d965"
+				}
+			]
+		}
 	}
 }

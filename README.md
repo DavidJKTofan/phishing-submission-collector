@@ -85,6 +85,14 @@ The following APIs are integrated into this project for phishing analysis and sc
 - [IPQualityScore Malicious URL Scanner](https://www.ipqualityscore.com/documentation/malicious-url-scanner-api/overview)
 - [Cloudflare URL Scanner API](https://developers.cloudflare.com/radar/investigate/url-scanner/)
 
+After Discord approval, the Workflow also records provider reporting outcomes:
+
+- Netcraft URL reporting API.
+- Cloudflare Abuse Reports API when Cloudflare DoH finds Cloudflare nameservers.
+- Microsoft MSRC Abuse API when Cloudflare DoH resolution and IP RDAP identify Microsoft-owned IPs.
+
+Google Safe Browsing reporting is not automated here because URL submission requires Google Cloud Web Risk Submission API access. After a successful submission, the UI links the user to Google's manual Safe Browsing report form for the submitted URL.
+
 > The user can opt out of any of these APIs per submission via the **Advanced API Settings** panel on the form.
 
 ## Configuration
@@ -97,8 +105,14 @@ These are accessed at runtime as `env.<NAME>` and never appear in `wrangler.json
 URLSCAN_API_KEY="<YOUR_API_KEY_HERE>"
 VIRUSTOTAL_API_KEY="<YOUR_API_KEY_HERE>"
 IPQS_API_KEY="<YOUR_API_KEY_HERE>"
+REPORTER_EMAIL="<YOUR_ABUSE_REPORT_CONTACT_EMAIL>"
+# Optional provider reporting identity/config:
+REPORTER_ORG="<YOUR_ORGANIZATION>"
+REPORTER_COUNTRY="US"
+REPORTER_PHONE="<YOUR_CONTACT_PHONE>"
+NETCRAFT_SOURCE_UUID="<OPTIONAL_NETCRAFT_SOURCE_UUID>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
-CLOUDFLARE_API_TOKEN="<API_TOKEN_WITH_ACCOUNT_URL_SCANNER_EDIT_AND_ZERO_TRUST_LIST_ACCESS>"
+CLOUDFLARE_API_TOKEN="<API_TOKEN_WITH_ACCOUNT_URL_SCANNER_EDIT_ZERO_TRUST_LIST_AND_ABUSE_REPORT_ACCESS>"
 TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"
 DISCORD_APPLICATION_PUBLIC_KEY="<YOUR_DISCORD_APP_PUBLIC_KEY>"
 DISCORD_BOT_TOKEN="<YOUR_DISCORD_BOT_TOKEN>"
@@ -122,6 +136,7 @@ These should be pinned to the exact production origin and hostname.
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist for `/submit` and `/api/report/`. | `https://report.example.com` |
 | `TURNSTILE_EXPECTED_HOSTNAMES` | Comma-separated allowlist for the `hostname` returned by Turnstile Siteverify. | `report.example.com` |
 | `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME` | Exact Cloudflare One Gateway `DOMAIN` list name to append approved hostnames to. | `0_PHISHING_Hostnames` |
+| `REPORTER_NAME` | Reporter display name included in provider abuse submissions. | `PRIVATE` |
 
 ### Discord approval flow
 
@@ -137,6 +152,8 @@ The Cloudflare One hostname approval flow uses a Discord app/bot message with na
 After a report is stored in D1, the Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Workflow. Approval adds the exact normalized hostname to the Cloudflare One `DOMAIN` list configured by `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`; denial or timeout only updates the existing D1 row.
 
 The Discord approval message includes the report ID, submitted URL, normalized hostname, category, source, description, and review links. When available, it links directly to the Cloudflare URL Scanner, urlscan.io, and VirusTotal reports; otherwise it includes a Cloudflare URL Scanner search/scan link for the submitted URL. Link previews are suppressed to keep the approval message compact.
+
+After approval, provider reporting runs independently from the Cloudflare One list write. Each provider result is stored in `provider_reports`; failures are recorded per provider and do not prevent the hostname list status from being recorded.
 
 Discord validates the Interactions Endpoint URL by sending a signed `PING` request. If validation fails:
 
@@ -236,6 +253,22 @@ npm run deploy
 
 `wrangler.jsonc` disables `workers.dev`; keep the production Custom Domain or route attached in Cloudflare, or add it to `wrangler.jsonc` with `routes` once the zone ownership details are confirmed.
 
+### Staging deployment
+
+The `staging` Wrangler environment deploys to `https://report-staging.automatic-demo.com/` with its own Worker name, D1 database, Workflow, CORS origin, Turnstile hostname, and Cloudflare One list name.
+
+Set staging secrets separately from production:
+
+```
+npx wrangler secret put <KEY> --env staging
+```
+
+Deploy staging:
+
+```
+npm run deploy:staging
+```
+
 ## D1 Reports Database
 
 Create the D1 database:
@@ -261,6 +294,7 @@ Apply follow-up migrations in order when updating an existing database:
 ```
 npx wrangler d1 execute reports_db --remote --file ./databases/003_drop_unused_indexes.sql
 npx wrangler d1 execute reports_db --remote --file ./databases/004_add_hostname_approval.sql
+npx wrangler d1 execute reports_db --remote --file ./databases/005_add_provider_reporting.sql
 ```
 
 Validate the setup (table is `reports_v2`):
@@ -314,7 +348,11 @@ Run the full flow against a deployed Worker or a public tunnel. Discord cannot c
    curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/gateway/lists?type=DOMAIN"
    curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/gateway/lists/<LIST_ID>/items"
    ```
-7. Watch operational logs:
+7. Confirm provider reporting rows exist:
+   ```
+   npx wrangler d1 execute reports_db --remote --command="SELECT provider, status, eligibility_reason, reference_id FROM provider_reports WHERE report_id = '<REPORT_ID>'"
+   ```
+8. Watch operational logs:
    ```
    npx wrangler tail --config wrangler.jsonc --format=pretty
    ```
@@ -326,6 +364,8 @@ Useful log events:
 | `discord_interaction_verification_failed` | Discord signature validation failed; check public key, route, and WAF/Custom Rules. |
 | `cloudflare_one_list_hostname_added` | Hostname was appended to the Gateway list. |
 | `cloudflare_one_list_duplicate` | Hostname already existed; no list write was attempted. |
+| `provider_reporting_workflow_error` | Provider reporting failed before per-provider results could be recorded. |
+| `provider_reporting_db_error` | Provider results were produced but could not be persisted to D1. |
 
 ## Reporting Entities
 

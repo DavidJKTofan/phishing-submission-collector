@@ -7,13 +7,14 @@ TURNSTILE_SECRET_KEY=""
 URLSCAN_API_KEY=""
 VIRUSTOTAL_API_KEY=""
 IPQS_API_KEY=""
+REPORTER_EMAIL=""
 CLOUDFLARE_ACCOUNT_ID=""
 CLOUDFLARE_API_TOKEN=""
 DISCORD_APPLICATION_PUBLIC_KEY=""
 DISCORD_BOT_TOKEN=""
 DISCORD_APPROVAL_CHANNEL_ID=""
 
-# Optional public vars (also live in wrangler.jsonc `vars`; .dev.vars wins locally).
+# Public vars live in wrangler.jsonc `vars`.
 # ALLOWED_ORIGINS="http://localhost:8787"
 # TURNSTILE_EXPECTED_HOSTNAMES="localhost"
 # CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME="0_PHISHING_Hostnames"

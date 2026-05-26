@@ -7,5 +7,5 @@
 		"rootDir": ".",
 		"types": []
 	},
-	"include": ["src/hostname.ts", "src/approval.ts"]
+	"include": ["src/hostname.ts", "src/approval.ts", "src/provider-reporting.ts"]
 }

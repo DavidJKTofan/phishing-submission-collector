@@ -48,42 +48,59 @@ document.addEventListener('DOMContentLoaded', function () {
 		errorMessage.style.display = 'block';
 	}
 
-		function makeItem(label, value, opts) {
-			const div = document.createElement('div');
-			div.className = 'report-item' + (opts && opts.fullWidth ? ' full-width' : '');
+	function makeItem(label, value, opts) {
+		const div = document.createElement('div');
+		div.className = 'report-item' + (opts && opts.fullWidth ? ' full-width' : '');
 		const strong = document.createElement('strong');
 		strong.textContent = label + ' ';
 		div.appendChild(strong);
 		div.appendChild(document.createTextNode(String(value ?? '')));
-			return div;
-		}
+		return div;
+	}
 
-		function makeJsonSummary(value) {
-			if (!value) return 'N/A';
-			try {
-				const parsed = typeof value === 'string' ? JSON.parse(value) : value;
-				const parts = [];
-				if (parsed.risk_score !== undefined) parts.push(`Risk score: ${parsed.risk_score}`);
-				if (parsed.unsafe !== undefined) parts.push(`Unsafe: ${parsed.unsafe ? 'Yes' : 'No'}`);
-				if (parsed.phishing !== undefined) parts.push(`Phishing: ${parsed.phishing ? 'Yes' : 'No'}`);
-				if (parsed.malware !== undefined) parts.push(`Malware: ${parsed.malware ? 'Yes' : 'No'}`);
-				if (parsed.domain) parts.push(`Domain: ${parsed.domain}`);
-				return parts.length ? parts.join(' | ') : 'Stored';
-			} catch (_) {
-				return 'Stored';
+	function makeJsonSummary(value) {
+		if (!value) return 'N/A';
+		try {
+			const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+			const parts = [];
+			if (parsed.risk_score !== undefined) parts.push(`Risk score: ${parsed.risk_score}`);
+			if (parsed.unsafe !== undefined) parts.push(`Unsafe: ${parsed.unsafe ? 'Yes' : 'No'}`);
+			if (parsed.phishing !== undefined) parts.push(`Phishing: ${parsed.phishing ? 'Yes' : 'No'}`);
+			if (parsed.malware !== undefined) parts.push(`Malware: ${parsed.malware ? 'Yes' : 'No'}`);
+			if (parsed.domain) parts.push(`Domain: ${parsed.domain}`);
+			return parts.length ? parts.join(' | ') : 'Stored';
+		} catch (_) {
+			return 'Stored';
+		}
+	}
+
+	function makeApiErrorsSummary(value) {
+		if (!value) return 'N/A';
+		try {
+			const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+			if (Array.isArray(parsed)) {
+				return parsed.map((item) => `${item.api || 'API'}: ${item.message || 'Unknown error'}`).join(' | ');
 			}
-		}
+		} catch (_) {}
+		return String(value);
+	}
 
-		function makeApiErrorsSummary(value) {
-			if (!value) return 'N/A';
-			try {
-				const parsed = typeof value === 'string' ? JSON.parse(value) : value;
-				if (Array.isArray(parsed)) {
-					return parsed.map((item) => `${item.api || 'API'}: ${item.message || 'Unknown error'}`).join(' | ');
-				}
-			} catch (_) {}
-			return String(value);
-		}
+	function providerName(value) {
+		const names = {
+			netcraft: 'Netcraft',
+			cloudflare_abuse: 'Cloudflare Abuse',
+			microsoft_msrc: 'Microsoft MSRC',
+		};
+		return names[value] || value || 'Provider';
+	}
+
+	function providerSummary(report) {
+		const parts = [report.status || 'unknown'];
+		if (report.reference_id) parts.push(`ref ${report.reference_id}`);
+		if (report.eligibility_reason) parts.push(report.eligibility_reason);
+		if (report.error) parts.push(report.error);
+		return parts.join(' - ');
+	}
 
 	function displayReport(report) {
 		resultContainer.replaceChildren();
@@ -103,10 +120,23 @@ document.addEventListener('DOMContentLoaded', function () {
 		grid.appendChild(makeItem('Submission Success:', report.submission_success ? 'Yes' : 'No'));
 		resultContainer.appendChild(grid);
 
-			if (report.urlscan_uuid) resultContainer.appendChild(makeItem('URLScan UUID:', report.urlscan_uuid));
-			if (report.virustotal_scan_id) resultContainer.appendChild(makeItem('VirusTotal Scan ID:', report.virustotal_scan_id));
-			if (report.ipqs_scan) resultContainer.appendChild(makeItem('IPQualityScore:', makeJsonSummary(report.ipqs_scan), { fullWidth: true }));
-			if (report.cloudflare_scan_uuid) resultContainer.appendChild(makeItem('Cloudflare Scan UUID:', report.cloudflare_scan_uuid));
-			if (report.api_errors) resultContainer.appendChild(makeItem('API Errors:', makeApiErrorsSummary(report.api_errors), { fullWidth: true }));
+		if (report.urlscan_uuid) resultContainer.appendChild(makeItem('URLScan UUID:', report.urlscan_uuid));
+		if (report.virustotal_scan_id) resultContainer.appendChild(makeItem('VirusTotal Scan ID:', report.virustotal_scan_id));
+		if (report.ipqs_scan) resultContainer.appendChild(makeItem('IPQualityScore:', makeJsonSummary(report.ipqs_scan), { fullWidth: true }));
+		if (report.cloudflare_scan_uuid) resultContainer.appendChild(makeItem('Cloudflare Scan UUID:', report.cloudflare_scan_uuid));
+		if (report.api_errors) resultContainer.appendChild(makeItem('API Errors:', makeApiErrorsSummary(report.api_errors), { fullWidth: true }));
+
+		if (Array.isArray(report.provider_reports) && report.provider_reports.length > 0) {
+			const providerHeading = document.createElement('h4');
+			providerHeading.textContent = 'Provider Reporting';
+			resultContainer.appendChild(providerHeading);
+
+			const providerGrid = document.createElement('div');
+			providerGrid.className = 'report-grid';
+			report.provider_reports.forEach((providerReport) => {
+				providerGrid.appendChild(makeItem(`${providerName(providerReport.provider)}:`, providerSummary(providerReport), { fullWidth: true }));
+			});
+			resultContainer.appendChild(providerGrid);
 		}
-	});
+	}
+});

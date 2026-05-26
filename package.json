@@ -7,8 +7,11 @@
     "check": "npm run typecheck && node --check public/assets/scripts.js && node --check public/assets/report.js && node --check public/assets/theme.js",
     "test": "tsc -p tsconfig.test.json && node --test tests/*.test.mjs",
     "deploy": "wrangler deploy --config wrangler.jsonc",
+    "deploy:staging": "wrangler deploy --config wrangler.jsonc --env staging",
     "deploy:dry-run": "wrangler deploy --dry-run --config wrangler.jsonc",
+    "deploy:staging:dry-run": "wrangler deploy --dry-run --config wrangler.jsonc --env staging",
     "dev": "wrangler dev --config wrangler.jsonc",
+    "dev:staging": "wrangler dev --config wrangler.jsonc --env staging",
     "start": "wrangler dev --config wrangler.jsonc",
     "typecheck": "npm run cf-typegen && tsc --noEmit"
   },

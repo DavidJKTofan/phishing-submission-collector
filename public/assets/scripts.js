@@ -416,6 +416,22 @@ function handleSubmissionSuccess(data) {
 	reportIdRow.appendChild(createElement('span', { className: 'result-mono', text: data.id || 'Unknown' }));
 	details.appendChild(reportIdRow);
 
+	if (data.submitted_url) {
+		const googleRow = createResultRow('Google Safe Browsing');
+		googleRow.appendChild(document.createTextNode('Please also report this URL manually: '));
+		googleRow.appendChild(
+			createElement('a', {
+				text: 'Open Google report form',
+				attrs: {
+					href: `https://safebrowsing.google.com/safebrowsing/report_phish/?hl=en&url=${encodeURIComponent(data.submitted_url)}`,
+					target: '_blank',
+					rel: 'nofollow noopener noreferrer external',
+				},
+			})
+		);
+		details.appendChild(googleRow);
+	}
+
 	const apiResults = [
 		{
 			value: data.urlscan_uuid,
