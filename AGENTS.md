@@ -27,6 +27,7 @@ A Cloudflare Worker that collects phishing reports, runs optional scanner APIs, 
 - **D1**: prepared statements with `?`; batch writes via `db.batch`; validate UUIDv4 before querying; schema changes go through `migrations/`.
 - **Security headers**: edit `public/_headers` AND `SECURITY_HEADERS`/`HTML_CSP` in `src` together. `index` needs no `style-src 'unsafe-inline'`; `/report` requires it (inline `<style>`/`style=`).
 - **Secrets**: never in `wrangler.jsonc`/source — use `wrangler secret put`. Don't hand-edit `worker-configuration.d.ts` (run `npm run cf-typegen`).
+- **Edge protection / verify**: staging is behind Cloudflare Access (`302` to login), production behind a WAF rule (`403` to bots) — you can't `curl`-verify a deploy anonymously. Confirm via `wrangler deployments list` + D1 queries, or an allowed/authenticated browser. `POST /discord/interactions` needs an Access bypass / WAF skip (Discord can't authenticate through Access).
 
 ## References
 - Workers best practices — https://developers.cloudflare.com/workers/best-practices/workers-best-practices/
