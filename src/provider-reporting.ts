@@ -1,4 +1,5 @@
 import type { PhishingHostnameWorkflowParams } from './approval';
+import { isRecord, requireConfig } from './shared.js';
 
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 const CLOUDFLARE_DOH_ENDPOINT = 'https://cloudflare-dns.com/dns-query';
@@ -6,7 +7,6 @@ const CLOUDFLARE_RDAP_DOMAIN_BASE = 'https://rdap.cloudflare.com/rdap/v1/domain'
 const MICROSOFT_MSRC_ABUSE_ENDPOINT = 'https://api.msrc.microsoft.com/report/v3.0/Abuse/report';
 const NETCRAFT_REPORT_URLS_ENDPOINT = 'https://report.netcraft.com/api/v3/report/urls';
 const RDAP_IP_BASE = 'https://rdap.org/ip';
-const PROVIDER_TIMEOUT_MS = 20_000;
 const MAX_PROVIDER_RESPONSE_CHARS = 12_000;
 
 export const PROVIDERS = ['netcraft', 'cloudflare_abuse', 'microsoft_msrc'] as const;
@@ -66,17 +66,6 @@ type ResolvedIps = {
 	ips: string[];
 	cnames: string[];
 };
-
-export async function runProviderReporting(
-	env: ProviderReportingEnv,
-	report: PhishingHostnameWorkflowParams
-): Promise<ProviderReportResult[]> {
-	return Promise.all([
-		runProvider('netcraft', () => reportToNetcraft(env, report)),
-		runProvider('cloudflare_abuse', () => reportToCloudflareAbuse(env, report)),
-		runProvider('microsoft_msrc', () => reportToMicrosoftMsrc(env, report)),
-	]);
-}
 
 export async function reportToNetcraft(
 	env: ProviderReportingEnv,
@@ -234,32 +223,6 @@ export async function reportToMicrosoftMsrc(
 	};
 }
 
-async function runProvider(provider: ProviderName, action: () => Promise<ProviderReportResult>): Promise<ProviderReportResult> {
-	try {
-		return await withTimeout(action, PROVIDER_TIMEOUT_MS);
-	} catch (error) {
-		return {
-			provider,
-			status: 'failed',
-			error: errorMessage(error),
-		};
-	}
-}
-
-async function withTimeout<T>(action: () => Promise<T>, timeoutMs: number): Promise<T> {
-	let timeoutId: ReturnType<typeof setTimeout> | undefined;
-	try {
-		return await Promise.race([
-			action(),
-			new Promise<T>((_, reject) => {
-				timeoutId = setTimeout(() => reject(new Error(`Provider timeout after ${timeoutMs}ms`)), timeoutMs);
-			}),
-		]);
-	} finally {
-		if (timeoutId) clearTimeout(timeoutId);
-	}
-}
-
 export async function findCloudflareNameserver(hostname: string): Promise<{
 	matched: boolean;
 	domain?: string;
@@ -390,11 +353,6 @@ function requireReporterIdentity(env: ProviderReportingEnv): ReporterIdentity {
 	};
 }
 
-function requireConfig(value: string | undefined, name: string): string {
-	if (!value) throw new Error(`Missing ${name}`);
-	return value;
-}
-
 function buildEvidenceNotes(report: PhishingHostnameWorkflowParams): string {
 	const lines = [
 		'Suspected malicious URL approved for provider reporting.',
@@ -480,10 +438,17 @@ export function serializeProviderResponse(value: unknown): string | null {
 	return serialized.length <= MAX_PROVIDER_RESPONSE_CHARS ? serialized : serialized.slice(0, MAX_PROVIDER_RESPONSE_CHARS);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
+// Cap a provider result before it is returned from a Workflow step. Step return
+// values are persisted by the Workflows runtime (1 MiB limit per non-stream
+// step), so we bound the largest field (raw upstream/RDAP/DNS payloads) while
+// preserving the status, reference, and eligibility fields used downstream.
+export function capProviderResult(result: ProviderReportResult): ProviderReportResult {
+	if (result.responseJson === undefined) return result;
+	const serialized = JSON.stringify(result.responseJson);
+	if (serialized.length <= MAX_PROVIDER_RESPONSE_CHARS) return result;
+	return {
+		...result,
+		responseJson: { truncated: true, original_chars: serialized.length, preview: serialized.slice(0, MAX_PROVIDER_RESPONSE_CHARS) },
+	};
 }
 
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}

@@ -1,11 +1,5 @@
-const SECURITY_HEADERS = {
-	'X-Content-Type-Options': 'nosniff',
-	'Referrer-Policy': 'strict-origin-when-cross-origin',
-	'X-Frame-Options': 'DENY',
-	'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
-} as const;
+import { HttpError, MAX_BODY_BYTES, SECURITY_HEADERS, jsonResponse, readTextBody, requireConfig, requireSecret } from './shared.js';
 
-const MAX_BODY_BYTES = 50_000;
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 const DISCORD_INTERACTION_PING = 1;
@@ -119,18 +113,6 @@ type CloudflareApiResponse<T> = {
 type DiscordVerificationResult =
 	| { ok: true }
 	| { ok: false; reason: string; status: 401 | 500 };
-
-class HttpError extends Error {
-	readonly status: number;
-	readonly code: string;
-
-	constructor(status: number, message: string, code = 'BAD_REQUEST') {
-		super(message);
-		this.name = 'HttpError';
-		this.status = status;
-		this.code = code;
-	}
-}
 
 export async function handleDiscordInteraction(request: Request, env: ApprovalEnv, ctx?: WaitUntilContext): Promise<Response> {
 	const body = await readTextBody(request, MAX_BODY_BYTES);
@@ -441,70 +423,6 @@ async function verifyEd25519Signature(publicKeyBytes: Uint8Array, signatureBytes
 		]);
 		return crypto.subtle.verify('NODE-ED25519', key, signature, payload);
 	}
-}
-
-async function readTextBody(request: Request, maxBytes: number): Promise<string> {
-	const contentLength = request.headers.get('Content-Length');
-	if (contentLength) {
-		const declaredLength = Number(contentLength);
-		if (!Number.isFinite(declaredLength) || declaredLength < 0) {
-			throw new HttpError(400, 'Invalid Content-Length', 'INVALID_CONTENT_LENGTH');
-		}
-		if (declaredLength > maxBytes) {
-			throw new HttpError(413, 'Request body too large', 'BODY_TOO_LARGE');
-		}
-	}
-
-	if (!request.body) throw new HttpError(400, 'Request body required', 'INVALID_JSON');
-
-	const reader = request.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let totalBytes = 0;
-
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (!value) continue;
-			totalBytes += value.byteLength;
-			if (totalBytes > maxBytes) {
-				throw new HttpError(413, 'Request body too large', 'BODY_TOO_LARGE');
-			}
-			chunks.push(value);
-		}
-	} finally {
-		reader.releaseLock();
-	}
-
-	const bodyBytes = new Uint8Array(totalBytes);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bodyBytes.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-
-	return new TextDecoder().decode(bodyBytes);
-}
-
-function jsonResponse(body: unknown, status: number): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: {
-			'Content-Type': 'application/json; charset=utf-8',
-			...SECURITY_HEADERS,
-		},
-	});
-}
-
-function requireSecret(value: string | undefined, name: string): string {
-	if (!value) throw new Error(`Missing ${name}`);
-	return value;
-}
-
-function requireConfig(value: string | undefined, name: string): string {
-	const trimmed = value?.trim();
-	if (!trimmed) throw new Error(`Missing ${name}`);
-	return trimmed;
 }
 
 function cloudflareApiError(data: CloudflareApiResponse<unknown>, status: number): string {

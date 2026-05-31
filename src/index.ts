@@ -1,5 +1,6 @@
 import { WorkflowEntrypoint } from 'cloudflare:workers';
 import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { NonRetryableError } from 'cloudflare:workflows';
 
 import {
 	APPROVAL_EVENT_TYPE,
@@ -10,15 +11,19 @@ import {
 } from './approval';
 import type { ApprovalEventPayload, ApprovalStatus, CloudflareListStatus, PhishingHostnameWorkflowParams } from './approval';
 import { HostnameNormalizationError, buildScanUrl, normalizeReportedHostname } from './hostname';
-import { runProviderReporting, serializeProviderResponse } from './provider-reporting';
-import type { ProviderReportResult } from './provider-reporting';
-
-const SECURITY_HEADERS = {
-	'X-Content-Type-Options': 'nosniff',
-	'Referrer-Policy': 'strict-origin-when-cross-origin',
-	'X-Frame-Options': 'DENY',
-	'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
-} as const;
+import { capProviderResult, reportToCloudflareAbuse, reportToMicrosoftMsrc, reportToNetcraft, serializeProviderResponse } from './provider-reporting';
+import type { ProviderName, ProviderReportResult } from './provider-reporting';
+import {
+	HttpError,
+	MAX_BODY_BYTES,
+	MissingConfigError,
+	SECURITY_HEADERS,
+	errorMessage,
+	isRecord,
+	jsonResponse,
+	readTextBody,
+	requireSecret,
+} from './shared';
 
 const HTML_CSP =
 	"default-src 'self'; " +
@@ -30,9 +35,10 @@ const HTML_CSP =
 	"frame-src https://challenges.cloudflare.com; " +
 	"frame-ancestors 'none'; " +
 	"base-uri 'self'; " +
-	"form-action 'self'";
+	"object-src 'none'; " +
+	"form-action 'self'; " +
+	'upgrade-insecure-requests';
 
-const MAX_BODY_BYTES = 50_000;
 const SITEVERIFY_TIMEOUT_MS = 5_000;
 const API_TIMEOUT_MS = 10_000;
 const MAX_URL_LENGTH = 2_048;
@@ -42,7 +48,7 @@ const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 const APPROVAL_TIMEOUT = '7 days';
 const DISCORD_APPROVAL_SEND_TIMEOUT = '30 seconds';
 const CLOUDFLARE_LIST_WRITE_TIMEOUT = '1 minute';
-const PROVIDER_REPORTING_TIMEOUT = '3 minutes';
+const PROVIDER_REPORT_TIMEOUT = '2 minutes';
 
 const ALLOWED_CATEGORIES = ['Phishing', 'Crypto Scam', 'Malware', 'Spam', 'Other'] as const;
 const ALLOWED_SOURCES = ['Email', 'SMS', 'Social Media', 'Website', 'Other'] as const;
@@ -105,18 +111,6 @@ type TurnstileValidation = {
 	action?: string;
 };
 
-class HttpError extends Error {
-	readonly status: number;
-	readonly code: string;
-
-	constructor(status: number, message: string, code = 'BAD_REQUEST') {
-		super(message);
-		this.name = 'HttpError';
-		this.status = status;
-		this.code = code;
-	}
-}
-
 export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHostnameWorkflowParams> {
 	async run(event: WorkflowEvent<PhishingHostnameWorkflowParams>, step: WorkflowStep): Promise<unknown> {
 		const report = event.payload;
@@ -125,7 +119,7 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 			await step.do(
 				'send Discord approval request',
 				{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: DISCORD_APPROVAL_SEND_TIMEOUT },
-				async () => sendDiscordApprovalMessage(this.env, report, event.instanceId)
+				async () => nonRetryableOnConfigError(() => sendDiscordApprovalMessage(this.env, report, event.instanceId))
 			);
 		} catch (error) {
 			const message = errorMessage(error);
@@ -176,7 +170,7 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 			listResult = await step.do(
 				'add hostname to Cloudflare One list',
 				{ retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' }, timeout: CLOUDFLARE_LIST_WRITE_TIMEOUT },
-				async () => addHostnameToCloudflareOneList(this.env, report.reportId, report.normalizedHostname)
+				async () => nonRetryableOnConfigError(() => addHostnameToCloudflareOneList(this.env, report.reportId, report.normalizedHostname))
 			);
 		} catch (error) {
 			const message = errorMessage(error);
@@ -192,16 +186,29 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 			});
 		}
 
-		let providerReports: ProviderReportResult[] = [];
-		try {
-			const providerReportsJson = await step.do(
-				'report approved URL to providers',
-				{ retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' }, timeout: PROVIDER_REPORTING_TIMEOUT },
-				async () => JSON.stringify(await runProviderReporting(this.env, report))
-			);
-			providerReports = parseProviderReportResults(providerReportsJson);
-		} catch (error) {
-			console.error(JSON.stringify({ event: 'provider_reporting_workflow_error', reportId: report.reportId, error: errorMessage(error) }));
+		// Each provider is its own step so retries are isolated and a transient
+		// failure in one provider never re-submits the others (Rules of Workflows:
+		// avoid batching non-idempotent calls; keep steps single-responsibility).
+		const providerSteps: Array<{ name: string; provider: ProviderName; run: () => Promise<ProviderReportResult> }> = [
+			{ name: 'report to Netcraft', provider: 'netcraft', run: () => reportToNetcraft(this.env, report) },
+			{ name: 'report to Cloudflare Abuse', provider: 'cloudflare_abuse', run: () => reportToCloudflareAbuse(this.env, report) },
+			{ name: 'report to Microsoft MSRC', provider: 'microsoft_msrc', run: () => reportToMicrosoftMsrc(this.env, report) },
+		];
+
+		const providerReports: ProviderReportResult[] = [];
+		for (const providerStep of providerSteps) {
+			try {
+				const resultJson = await step.do(
+					providerStep.name,
+					{ retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' }, timeout: PROVIDER_REPORT_TIMEOUT },
+					async () => JSON.stringify(capProviderResult(await nonRetryableOnConfigError(() => providerStep.run())))
+				);
+				providerReports.push(parseSingleProviderResult(resultJson, providerStep.provider));
+			} catch (error) {
+				const message = errorMessage(error);
+				console.error(JSON.stringify({ event: 'provider_reporting_step_failed', reportId: report.reportId, provider: providerStep.provider, error: message }));
+				providerReports.push({ provider: providerStep.provider, status: 'failed', error: message });
+			}
 		}
 
 		if (providerReports.length > 0) {
@@ -220,6 +227,17 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 			hostname: report.normalizedHostname,
 			providerReports: providerReports.map((item) => ({ provider: item.provider, status: item.status })),
 		};
+	}
+}
+
+// A missing secret/config value will not resolve by retrying within a run, so
+// surface it as a terminal (non-retryable) failure for the step.
+async function nonRetryableOnConfigError<T>(action: () => Promise<T>): Promise<T> {
+	try {
+		return await action();
+	} catch (error) {
+		if (error instanceof MissingConfigError) throw new NonRetryableError(error.message);
+		throw error;
 	}
 }
 
@@ -269,13 +287,6 @@ export default {
 			} catch (error) {
 				return handleErrorResponse(error, {});
 			}
-		}
-
-		if (url.pathname === '/random') {
-			return new Response(crypto.randomUUID(), {
-				status: 200,
-				headers: { 'Content-Type': 'text/plain; charset=utf-8', ...SECURITY_HEADERS, ...cors.headers },
-			});
 		}
 
 		if (url.pathname.startsWith('/api/report/')) {
@@ -332,17 +343,6 @@ function buildCorsHeaders(request: Request, env: Env): { allowed: boolean; heade
 	};
 }
 
-function jsonResponse(body: unknown, status: number, corsHeaders: Record<string, string> = {}): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: {
-			'Content-Type': 'application/json; charset=utf-8',
-			...SECURITY_HEADERS,
-			...corsHeaders,
-		},
-	});
-}
-
 function handleErrorResponse(error: unknown, corsHeaders: Record<string, string>): Response {
 	if (error instanceof HttpError) {
 		return jsonResponse({ error: error.message, code: error.code }, error.status, corsHeaders);
@@ -375,49 +375,6 @@ async function readJsonBody(request: Request, maxBytes: number): Promise<unknown
 	} catch {
 		throw new HttpError(400, 'Request body must be valid JSON', 'INVALID_JSON');
 	}
-}
-
-async function readTextBody(request: Request, maxBytes: number): Promise<string> {
-	const contentLength = request.headers.get('Content-Length');
-	if (contentLength) {
-		const declaredLength = Number(contentLength);
-		if (!Number.isFinite(declaredLength) || declaredLength < 0) {
-			throw new HttpError(400, 'Invalid Content-Length', 'INVALID_CONTENT_LENGTH');
-		}
-		if (declaredLength > maxBytes) {
-			throw new HttpError(413, 'Request body too large', 'BODY_TOO_LARGE');
-		}
-	}
-
-	if (!request.body) throw new HttpError(400, 'Request body required', 'INVALID_JSON');
-
-	const reader = request.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let totalBytes = 0;
-
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (!value) continue;
-			totalBytes += value.byteLength;
-			if (totalBytes > maxBytes) {
-				throw new HttpError(413, 'Request body too large', 'BODY_TOO_LARGE');
-			}
-			chunks.push(value);
-		}
-	} finally {
-		reader.releaseLock();
-	}
-
-	const bodyBytes = new Uint8Array(totalBytes);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bodyBytes.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-
-	return new TextDecoder().decode(bodyBytes);
 }
 
 async function validateTurnstile(token: string, ip: string | null, env: Env): Promise<TurnstileValidation> {
@@ -889,36 +846,39 @@ async function updateCloudflareListResult(
 }
 
 async function saveProviderReportResults(db: D1Database, reportId: string, results: ProviderReportResult[]): Promise<void> {
-	for (const result of results) {
-		await runD1WriteWithRetry(() =>
-			db
-				.prepare(
-					`INSERT INTO provider_reports (
-						report_id, provider, status, eligibility_reason, reference_id,
-						http_status, response_json, error
-					) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(report_id, provider) DO UPDATE SET
-						status = excluded.status,
-						eligibility_reason = excluded.eligibility_reason,
-						reference_id = excluded.reference_id,
-						http_status = excluded.http_status,
-						response_json = excluded.response_json,
-						error = excluded.error,
-						last_updated = CURRENT_TIMESTAMP`
-				)
-				.bind(
-					reportId,
-					result.provider,
-					result.status,
-					result.eligibilityReason || null,
-					result.referenceId || null,
-					result.httpStatus || null,
-					serializeProviderResponse(result.responseJson),
-					result.error || null
-				)
-				.run()
-		);
-	}
+	if (results.length === 0) return;
+
+	// Batch all upserts into a single atomic round trip rather than one network
+	// call per provider (D1 best practices: prefer db.batch over sequential writes).
+	const statements = results.map((result) =>
+		db
+			.prepare(
+				`INSERT INTO provider_reports (
+					report_id, provider, status, eligibility_reason, reference_id,
+					http_status, response_json, error
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(report_id, provider) DO UPDATE SET
+					status = excluded.status,
+					eligibility_reason = excluded.eligibility_reason,
+					reference_id = excluded.reference_id,
+					http_status = excluded.http_status,
+					response_json = excluded.response_json,
+					error = excluded.error,
+					last_updated = CURRENT_TIMESTAMP`
+			)
+			.bind(
+				reportId,
+				result.provider,
+				result.status,
+				result.eligibilityReason || null,
+				result.referenceId || null,
+				result.httpStatus || null,
+				serializeProviderResponse(result.responseJson),
+				result.error || null
+			)
+	);
+
+	await runD1WriteWithRetry(() => db.batch(statements));
 }
 
 async function runD1WriteWithRetry<T>(operation: () => Promise<T>, maxAttempts = 3): Promise<T> {
@@ -955,8 +915,12 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Public projection for the unauthenticated GET /api/report/:id endpoint.
+// Deliberately excludes internal/operational fields that should not be exposed
+// by UUID: approval_actor (Discord moderator identity), workflow_instance_id,
+// and cloudflare_list_error (raw internal error text).
 const REPORT_COLUMNS =
-	'id, name, category, source, url, description, urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid, api_errors, submission_success, timestamp, normalized_hostname, workflow_instance_id, approval_status, approval_actor, approval_decided_at, cloudflare_list_status, cloudflare_list_error';
+	'id, name, category, source, url, description, urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid, api_errors, submission_success, timestamp, normalized_hostname, approval_status, approval_decided_at, cloudflare_list_status';
 
 async function getReportFromDB(db: D1Database, id: string | undefined): Promise<Record<string, unknown> | null> {
 	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -974,9 +938,11 @@ async function getReportFromDB(db: D1Database, id: string | undefined): Promise<
 
 async function getProviderReportsFromDB(db: D1Database, reportId: string): Promise<Array<Record<string, unknown>>> {
 	try {
+		// response_json holds raw upstream/RDAP payloads (possible registrant data)
+		// and is intentionally omitted from this public projection.
 		const rows = await db
 			.prepare(
-				`SELECT provider, status, eligibility_reason, reference_id, http_status, response_json, error, created_at, last_updated
+				`SELECT provider, status, eligibility_reason, reference_id, http_status, error, created_at, last_updated
 				 FROM provider_reports
 				 WHERE report_id = ?
 				 ORDER BY provider`
@@ -997,10 +963,6 @@ function parseCsv(value: string | undefined): string[] {
 		.filter(Boolean);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function stringField(value: unknown): string {
 	return typeof value === 'string' ? value : '';
 }
@@ -1013,14 +975,14 @@ function isAllowedSource(value: string): value is Source {
 	return (ALLOWED_SOURCES as readonly string[]).includes(value);
 }
 
-function parseProviderReportResults(value: string): ProviderReportResult[] {
+function parseSingleProviderResult(value: string, provider: ProviderName): ProviderReportResult {
 	try {
-		const parsed = JSON.parse(value) as ProviderReportResult[];
-		if (!Array.isArray(parsed)) return [];
-		return parsed.filter(isProviderReportResult);
+		const parsed = JSON.parse(value) as unknown;
+		if (isProviderReportResult(parsed)) return parsed;
 	} catch {
-		return [];
+		// fall through to a failed result below
 	}
+	return { provider, status: 'failed', error: 'Malformed provider result' };
 }
 
 function isProviderReportResult(value: unknown): value is ProviderReportResult {
@@ -1031,11 +993,3 @@ function isProviderReportResult(value: unknown): value is ProviderReportResult {
 	);
 }
 
-function requireSecret(value: string | undefined, name: string): string {
-	if (!value) throw new Error(`Missing ${name}`);
-	return value;
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}

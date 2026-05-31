@@ -55,13 +55,18 @@ project/
 ├── src/
 │   ├── index.ts                # Worker routes and Workflow class
 │   ├── approval.ts             # Discord approval and Cloudflare One list logic
-│   └── hostname.ts             # URL/domain normalization and validation
+│   ├── provider-reporting.ts   # Post-approval provider abuse reporting
+│   ├── hostname.ts             # URL/domain normalization and validation
+│   └── shared.ts               # Shared HTTP/Worker helpers (headers, body, errors)
 │
-├── databases/
-│   ├── 001_create_table.sql    # SQL to set up D1 database
-│   ├── 002_seed_data.sql       # Optional: Test data for development
-│   ├── 003_drop_unused_indexes.sql
-│   └── 004_add_hostname_approval.sql
+├── migrations/                 # Canonical D1 schema (wrangler d1 migrations)
+│   ├── 0001_baseline.sql       # Consolidated, idempotent baseline schema
+│   └── 0002_drop_provider_reports_status_index.sql
+│
+├── databases/                  # Historical SQL, superseded by migrations/
+│   ├── 001_create_table.sql
+│   ├── 002_seed_data.sql       # Optional: test data for development (still used)
+│   └── 003-005_*.sql
 │
 ├── public/
 │   ├── index.html              # Submission form
@@ -69,7 +74,9 @@ project/
 │   ├── manifest.json           # PWA manifest
 │   ├── favicon.*               # Favicons
 │   └── assets/
-│       ├── scripts.js          # Frontend scripts (form, Turnstile)
+│       ├── scripts.js          # Submission form scripts (form, Turnstile)
+│       ├── report.js           # Status-lookup page script
+│       ├── theme.js            # Dark/light theme bootstrap
 │       └── styles.css          # Frontend stylesheet
 │
 ├── wrangler.jsonc              # Cloudflare Workers configuration
@@ -153,7 +160,7 @@ After a report is stored in D1, the Worker starts the `PHISHING_HOSTNAME_WORKFLO
 
 The Discord approval message includes the report ID, submitted URL, normalized hostname, category, source, description, and review links. When available, it links directly to the Cloudflare URL Scanner, urlscan.io, and VirusTotal reports; otherwise it includes a Cloudflare URL Scanner search/scan link for the submitted URL. Link previews are suppressed to keep the approval message compact.
 
-After approval, provider reporting runs independently from the Cloudflare One list write. Each provider result is stored in `provider_reports`; failures are recorded per provider and do not prevent the hostname list status from being recorded.
+After approval, provider reporting runs independently from the Cloudflare One list write — each provider (Netcraft, Cloudflare Abuse, Microsoft MSRC) is its own retryable Workflow step, so a transient failure in one never re-submits the others. Each result is stored in `provider_reports`; failures are recorded per provider and do not block the hostname list status.
 
 Discord validates the Interactions Endpoint URL by sending a signed `PING` request. If validation fails:
 
@@ -216,7 +223,7 @@ Duplicate handling:
 
 - **Cloudflare Turnstile** — required to submit. The sitekey is set as `data-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); the secret is verified server-side with HTTP `response.ok` checking, an idempotency key, a 5 s timeout via `AbortController`, strict action validation (`submit-report`), and hostname validation (`TURNSTILE_EXPECTED_HOSTNAMES`). All five Turnstile callbacks (`callback`, `expired-callback`, `error-callback`, `timeout-callback`, `unsupported-callback`) are wired with retry/reset logic.
 - **CORS** — exact-origin allowlist driven by `ALLOWED_ORIGINS` with a `Vary: Origin` header. Same-origin requests are always allowed.
-- **Security response headers** — every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, and a restrictive `Permissions-Policy`. HTML responses additionally get a `Content-Security-Policy` that allows the Turnstile script/iframe.
+- **Security response headers** — every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, `Strict-Transport-Security`, and a restrictive `Permissions-Policy`. Static pages get their `Content-Security-Policy` from `public/_headers` (authoritative under asset-first routing); the submission page (`/`) needs no `style-src 'unsafe-inline'`, while `/report` keeps it for its inline `<style>`/`style=""`. The Turnstile script/iframe are allowed only where needed. All CSPs set `object-src 'none'` and `upgrade-insecure-requests`.
 - **Body size guard** — `/submit` rejects declared or streamed bodies over 50,000 bytes (`413`).
 - **Input validation** — server-side URL/domain parsing normalizes the exact hostname, rejects IPs/localhost/wildcards/invalid labels, and keeps category and source restricted to fixed enums.
 - **D1 prepared statements** — all reads/writes use `?` placeholders; reads validate UUIDv4 format before querying; transient D1 write failures are retried with bounded jittered backoff.
@@ -277,24 +284,24 @@ Create the D1 database:
 npx wrangler d1 create reports_db
 ```
 
-Apply the schema:
+Apply the schema with the [D1 migrations framework](https://developers.cloudflare.com/d1/reference/migrations/) (`migrations_dir` is configured per database in `wrangler.jsonc`). The baseline migration is idempotent, so this is safe both on a fresh database (it creates everything) and on an existing database that already had the historical `databases/*.sql` applied manually (it records the migrations without altering existing tables):
 
 ```
-npx wrangler d1 execute reports_db --remote --file ./databases/001_create_table.sql
+npx wrangler d1 migrations apply reports_db --remote
 ```
+
+For the staging database:
+
+```
+npx wrangler d1 migrations apply reports_db_staging --remote --env staging
+```
+
+Use `--local` instead of `--remote` to target the local dev database, and `npx wrangler d1 migrations list reports_db --remote` to preview pending migrations.
 
 (Optional) Seed test data:
 
 ```
 npx wrangler d1 execute reports_db --remote --file ./databases/002_seed_data.sql
-```
-
-Apply follow-up migrations in order when updating an existing database:
-
-```
-npx wrangler d1 execute reports_db --remote --file ./databases/003_drop_unused_indexes.sql
-npx wrangler d1 execute reports_db --remote --file ./databases/004_add_hostname_approval.sql
-npx wrangler d1 execute reports_db --remote --file ./databases/005_add_provider_reporting.sql
 ```
 
 Validate the setup (table is `reports_v2`):
@@ -305,7 +312,14 @@ npx wrangler d1 execute reports_db --remote --command="SELECT id, name, category
 
 ### Managing schema updates
 
-For schema changes, create new SQL files (e.g., `003_add_new_column.sql`) and maintain a clear version history. This ensures traceability and consistency across deployments.
+Schema changes use the migrations framework. Create a migration, edit the generated file in `migrations/`, then apply it:
+
+```
+npx wrangler d1 migrations create reports_db "add_new_column"
+npx wrangler d1 migrations apply reports_db --remote
+```
+
+`migrations/0001_baseline.sql` is the consolidated current schema and `migrations/0002_*` drops an unused index. The historical `databases/*.sql` files are kept for reference only and are superseded by `migrations/`.
 
 ## Endpoints
 
@@ -313,8 +327,7 @@ For schema changes, create new SQL files (e.g., `003_add_new_column.sql`) and ma
 |---|---|---|
 | `POST` | `/submit` | Submit a URL or domain with Turnstile verification. Body: JSON. |
 | `POST` | `/discord/interactions` | Discord app interaction endpoint for approval buttons. |
-| `GET`  | `/api/report/:id` | Look up a stored report by UUID. |
-| `GET`  | `/random` | Returns a fresh UUID (utility). |
+| `GET`  | `/api/report/:id` | Look up a stored report by UUID. Returns a minimal public projection. |
 | `GET`  | `/*` | Static assets from `./public/` via the `ASSETS` binding. |
 
 ## Testing
@@ -332,7 +345,7 @@ npm run deploy:dry-run
 Run the full flow against a deployed Worker or a public tunnel. Discord cannot call a private localhost URL.
 
 1. Confirm setup:
-   - D1 migrations through `004_add_hostname_approval.sql` are applied.
+   - D1 migrations are applied (`npx wrangler d1 migrations apply reports_db --remote`).
    - Required secrets are set.
    - Discord Interactions Endpoint URL is `https://<worker-hostname>/discord/interactions`.
    - A Zero Trust `DOMAIN` list exists with the exact name configured in `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`.
@@ -364,7 +377,7 @@ Useful log events:
 | `discord_interaction_verification_failed` | Discord signature validation failed; check public key, route, and WAF/Custom Rules. |
 | `cloudflare_one_list_hostname_added` | Hostname was appended to the Gateway list. |
 | `cloudflare_one_list_duplicate` | Hostname already existed; no list write was attempted. |
-| `provider_reporting_workflow_error` | Provider reporting failed before per-provider results could be recorded. |
+| `provider_reporting_step_failed` | A provider step failed after retries; that provider is recorded as `failed`. |
 | `provider_reporting_db_error` | Provider results were produced but could not be persisted to D1. |
 
 ## Reporting Entities
@@ -374,7 +387,7 @@ The report page ([public/report.html](public/report.html)) is the canonical, reg
 ## Known Limitations / Future Work
 
 - **Workflow approval observability** — approval status is stored in D1, but there is no admin dashboard yet for pending/expired approvals.
-- **`/api/report/:id` is publicly readable by UUID** — acceptable given UUIDv4 entropy, but no auth.
+- **`/api/report/:id` is publicly readable by UUID** — acceptable given UUIDv4 entropy, but no auth. It returns a minimal projection: internal/PII fields (`approval_actor`, `workflow_instance_id`, `cloudflare_list_error`, and provider `response_json`) are not exposed.
 - **Rate limiting** — deploy should include a Cloudflare Rate Limiting Rule for `/submit`; keep this outside app code when possible.
 
 ## Disclaimer

@@ -212,6 +212,7 @@ function isValidUrlOrHostname(value) {
 			hostname !== 'localhost' &&
 			!hostname.includes('*') &&
 			!hostname.includes(':') &&
+			!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) &&
 			hostname.length <= 253 &&
 			hostname.split('.').every((label) => label && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
 		);

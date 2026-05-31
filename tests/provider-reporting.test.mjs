@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 
 import {
+	capProviderResult,
 	findCloudflareNameserver,
 	reportToCloudflareAbuse,
 	reportToMicrosoftMsrc,
@@ -136,6 +137,38 @@ test('skips Microsoft MSRC reports when resolved IPs are not Microsoft-owned', a
 	assert.equal(result.status, 'skipped');
 	assert.match(result.eligibilityReason, /not owned by Microsoft/);
 	assert.equal(calls.some((call) => call.url === 'https://api.msrc.microsoft.com/report/v3.0/Abuse/report'), false);
+});
+
+test('capProviderResult passes small responses through unchanged', () => {
+	const result = { provider: 'netcraft', status: 'submitted', referenceId: 'abc', responseJson: { ok: true, note: 'small' } };
+	assert.deepEqual(capProviderResult(result), result);
+});
+
+test('capProviderResult truncates oversized response payloads while preserving status fields', () => {
+	const big = 'x'.repeat(20_000);
+	const result = {
+		provider: 'cloudflare_abuse',
+		status: 'submitted',
+		referenceId: 'ref-1',
+		eligibilityReason: 'Cloudflare nameserver found',
+		responseJson: { rdap: big },
+	};
+
+	const capped = capProviderResult(result);
+
+	assert.equal(capped.provider, 'cloudflare_abuse');
+	assert.equal(capped.status, 'submitted');
+	assert.equal(capped.referenceId, 'ref-1');
+	assert.equal(capped.eligibilityReason, 'Cloudflare nameserver found');
+	assert.equal(capped.responseJson.truncated, true);
+	assert.ok(capped.responseJson.original_chars > 12_000);
+	assert.ok(capped.responseJson.preview.length <= 12_000);
+	assert.equal(result.responseJson.rdap, big, 'original result must not be mutated');
+});
+
+test('capProviderResult leaves results without a response payload untouched', () => {
+	const result = { provider: 'microsoft_msrc', status: 'skipped', eligibilityReason: 'No A or AAAA records resolved.' };
+	assert.deepEqual(capProviderResult(result), result);
 });
 
 function makeEnv(overrides = {}) {

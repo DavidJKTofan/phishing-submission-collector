@@ -40,7 +40,8 @@
 		{
 			"binding": "DB",
 			"database_name": "reports_db",
-			"database_id": "8ec44b1e-510c-4f6e-a239-0ba3a7361925"
+			"database_id": "8ec44b1e-510c-4f6e-a239-0ba3a7361925",
+			"migrations_dir": "migrations"
 		}
 	],
 	"observability": {
@@ -89,7 +90,8 @@
 				{
 					"binding": "DB",
 					"database_name": "reports_db_staging",
-					"database_id": "f9cd2bb7-4e23-4865-8202-96c4bcb8d965"
+					"database_id": "f9cd2bb7-4e23-4865-8202-96c4bcb8d965",
+					"migrations_dir": "migrations"
 				}
 			]
 		}
