@@ -106,14 +106,14 @@ type TurnstileSiteverifyResponse = {
 	cdata?: string;
 };
 
-type TurnstileValidation = {
-	success: boolean;
-	error?: string;
-	errorCodes?: string[];
-	timestamp?: string;
-	hostname?: string;
-	action?: string;
-};
+// Discriminated union so the success and failure shapes can't be mixed up: a
+// passing result carries the verified hostname/action, a failing one carries a
+// server-side reason. The `error` string is for logs only — it is never sent to
+// the client, which always receives a generic message so a probing attacker
+// learns nothing about why verification failed.
+type TurnstileValidation =
+	| { success: true; hostname: string; action: string; challengeTs?: string }
+	| { success: false; error: string; errorCodes?: string[] };
 
 // step.do()'s return type must satisfy `T extends Rpc.Serializable<T>`. Checking
 // that constraint against ProviderReportResult's recursive `JsonValue` field
@@ -327,7 +327,13 @@ export default {
 
 				const turnstileValid = await validateTurnstile(formData.turnstileToken, request.headers.get('CF-Connecting-IP'), env);
 				if (!turnstileValid.success) {
-					console.error('Turnstile validation failed:', JSON.stringify(redactTurnstileFailure(turnstileValid)));
+					// turnstileValid is narrowed to the failure variant here. Only the
+					// server-side reason and Cloudflare error codes are logged — never the
+					// token — and the client response stays generic.
+					console.error(
+						'Turnstile validation failed:',
+						JSON.stringify({ error: turnstileValid.error, errorCodes: turnstileValid.errorCodes ?? [] })
+					);
 					return jsonResponse({ error: 'Invalid security verification', code: 'INVALID_TURNSTILE' }, 400, cors.headers);
 				}
 
@@ -464,32 +470,40 @@ async function validateTurnstile(token: string, ip: string | null, env: Env): Pr
 
 	const outcome = attempt.outcome;
 
-	if (outcome.success && outcome.action !== TURNSTILE_ACTION) {
+	// Fail closed first: if Cloudflare did not pass the token (expired, already
+	// redeemed, forged, wrong secret, …) reject before running the cross-checks
+	// below, which only carry meaning for a token Cloudflare actually accepted.
+	if (!outcome.success) {
+		return { success: false, error: 'token rejected', errorCodes: outcome['error-codes'] ?? [] };
+	}
+
+	// Bind the accepted token to this form. A token is otherwise replayable
+	// against any endpoint sharing the sitekey, so require the action it was
+	// minted for and a hostname we explicitly trust.
+	if (outcome.action !== TURNSTILE_ACTION) {
 		console.error('Turnstile action mismatch:', { got: outcome.action, expected: TURNSTILE_ACTION });
 		return { success: false, error: 'action mismatch' };
 	}
 
-	if (outcome.success && (!outcome.hostname || !expectedHostnames.includes(outcome.hostname))) {
+	if (!outcome.hostname || !expectedHostnames.includes(outcome.hostname)) {
 		console.error('Turnstile hostname mismatch:', { got: outcome.hostname, expected: expectedHostnames });
 		return { success: false, error: 'hostname mismatch' };
 	}
 
+	// Reaching here means the token passed every check, so this event names a
+	// genuine verification. Record what was verified for audit; failures are
+	// logged at the call site.
 	console.log(
 		JSON.stringify({
 			event: 'turnstile_verified',
-			success: outcome.success,
+			hostname: outcome.hostname,
+			action: outcome.action,
+			challengeTs: outcome.challenge_ts,
 			timestamp: new Date().toISOString(),
-			errorCodes: outcome['error-codes'] || [],
 		})
 	);
 
-	return {
-		success: outcome.success,
-		errorCodes: outcome['error-codes'] || [],
-		timestamp: outcome.challenge_ts,
-		hostname: outcome.hostname,
-		action: outcome.action,
-	};
+	return { success: true, hostname: outcome.hostname, action: outcome.action, challengeTs: outcome.challenge_ts };
 }
 
 type SiteverifyAttempt = { outcome: TurnstileSiteverifyResponse; error?: undefined } | { outcome?: undefined; error: string; retryable: boolean };
@@ -531,17 +545,6 @@ function isTurnstileSiteverifyResponse(value: unknown): value is TurnstileSiteve
 	const errorCodes = value['error-codes'];
 	if (errorCodes !== undefined && (!Array.isArray(errorCodes) || !errorCodes.every((code) => typeof code === 'string'))) return false;
 	return ['challenge_ts', 'hostname', 'action', 'cdata'].every((key) => value[key] === undefined || typeof value[key] === 'string');
-}
-
-function redactTurnstileFailure(result: TurnstileValidation): TurnstileValidation {
-	return {
-		success: result.success,
-		error: result.error,
-		errorCodes: result.errorCodes,
-		timestamp: result.timestamp,
-		hostname: result.hostname,
-		action: result.action,
-	};
 }
 
 async function handleSubmission(formData: SubmissionData, env: Env, ctx: ExecutionContext): Promise<SubmissionResult> {
