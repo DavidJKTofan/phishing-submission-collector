@@ -19,11 +19,18 @@
 		}
 	}
 
-	function applyTheme(theme) {
+	function applyTheme(theme, notify) {
 		root.setAttribute('data-theme', theme);
+		// Notify listeners (e.g. the Turnstile widget) that the theme changed.
+		// Skipped for the initial pre-paint application: nothing listens yet.
+		if (notify) {
+			try {
+				document.dispatchEvent(new CustomEvent('themechange', { detail: { theme: theme } }));
+			} catch (_) {}
+		}
 	}
 
-	applyTheme(getStoredTheme() || getSystemTheme());
+	applyTheme(getStoredTheme() || getSystemTheme(), false);
 
 	function syncToggleState(toggle) {
 		var current = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -42,7 +49,7 @@
 		toggle.addEventListener('click', function () {
 			var current = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
 			var next = current === 'dark' ? 'light' : 'dark';
-			applyTheme(next);
+			applyTheme(next, true);
 			try {
 				localStorage.setItem(STORAGE_KEY, next);
 			} catch (_) {}
@@ -54,7 +61,7 @@
 				var mq = window.matchMedia('(prefers-color-scheme: dark)');
 				var listener = function (e) {
 					if (getStoredTheme()) return;
-					applyTheme(e.matches ? 'dark' : 'light');
+					applyTheme(e.matches ? 'dark' : 'light', true);
 					syncToggleState(toggle);
 				};
 				if (mq.addEventListener) mq.addEventListener('change', listener);

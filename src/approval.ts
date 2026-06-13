@@ -1,7 +1,21 @@
-import { HttpError, MAX_BODY_BYTES, SECURITY_HEADERS, jsonResponse, readTextBody, requireConfig, requireSecret } from './shared.js';
+import {
+	HttpError,
+	MAX_BODY_BYTES,
+	SECURITY_HEADERS,
+	errorMessage,
+	isRecord,
+	jsonResponse,
+	readTextBody,
+	requireConfig,
+	requireSecret,
+} from './shared.js';
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
+// Discord webhook follow-ups run inside ctx.waitUntil (outside any Workflow
+// step timeout), so they need their own bound (Workers best practices: set
+// reasonable timeouts on outbound requests).
+const DISCORD_WEBHOOK_TIMEOUT_MS = 10_000;
 const DISCORD_INTERACTION_PING = 1;
 const DISCORD_INTERACTION_MESSAGE_COMPONENT = 3;
 const DISCORD_RESPONSE_PONG = 1;
@@ -63,11 +77,10 @@ type ApprovalEnv = {
 type DiscordInteraction = {
 	id?: string;
 	application_id?: string;
-	type?: number;
+	type: number;
 	token?: string;
 	data?: {
 		custom_id?: string;
-		component_type?: number;
 	};
 	member?: {
 		user?: DiscordUser;
@@ -99,11 +112,6 @@ type CloudflareZeroTrustList = {
 	type?: string;
 };
 
-type CloudflareZeroTrustListItem = {
-	value?: string;
-	description?: string;
-};
-
 type CloudflareApiResponse<T> = {
 	success?: boolean;
 	result?: T;
@@ -122,7 +130,14 @@ export async function handleDiscordInteraction(request: Request, env: ApprovalEn
 		return new Response('invalid request signature', { status: verification.status, headers: SECURITY_HEADERS });
 	}
 
-	const interaction = JSON.parse(body) as DiscordInteraction;
+	// The signature has been verified at this point, but the payload shape is
+	// still external input: validate it instead of trusting a type assertion.
+	const interaction = parseDiscordInteraction(body);
+	if (!interaction) {
+		console.error(JSON.stringify({ event: 'discord_interaction_malformed_payload' }));
+		return jsonResponse({ error: 'Malformed interaction payload' }, 400);
+	}
+
 	if (interaction.type === DISCORD_INTERACTION_PING) {
 		return jsonResponse({ type: DISCORD_RESPONSE_PONG }, 200);
 	}
@@ -193,15 +208,30 @@ async function recordDiscordDecision(
 	return { ok: true, approved: action === 'approve', actorId: actor.id };
 }
 
+// checkExisting makes a retried send idempotent: a retry after a lost response
+// could otherwise post a duplicate approval message. The caller sets it from
+// WorkflowStepContext.attempt so the extra lookup only happens on retries.
 export async function sendDiscordApprovalMessage(
 	env: ApprovalEnv,
 	report: PhishingHostnameWorkflowParams,
-	instanceId: string
+	instanceId: string,
+	checkExisting = false
 ): Promise<DiscordMessage> {
-	const response = await fetch(`${DISCORD_API_BASE}/channels/${requireSecret(env.DISCORD_APPROVAL_CHANNEL_ID, 'DISCORD_APPROVAL_CHANNEL_ID')}/messages`, {
+	const channelId = requireSecret(env.DISCORD_APPROVAL_CHANNEL_ID, 'DISCORD_APPROVAL_CHANNEL_ID');
+	const botToken = requireSecret(env.DISCORD_BOT_TOKEN, 'DISCORD_BOT_TOKEN');
+
+	if (checkExisting) {
+		const existing = await findExistingDiscordApprovalMessage(channelId, botToken, instanceId);
+		if (existing) {
+			console.log(JSON.stringify({ event: 'discord_approval_message_already_sent', reportId: report.reportId, messageId: existing.id }));
+			return existing;
+		}
+	}
+
+	const response = await fetch(`${DISCORD_API_BASE}/channels/${channelId}/messages`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bot ${requireSecret(env.DISCORD_BOT_TOKEN, 'DISCORD_BOT_TOKEN')}`,
+			Authorization: `Bot ${botToken}`,
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify({
@@ -217,21 +247,56 @@ export async function sendDiscordApprovalMessage(
 	return data;
 }
 
+// Best-effort duplicate detection: scan recent channel messages for the approve
+// button carrying this instance ID. Any failure (for example, a bot without the
+// Read Message History permission) falls back to posting normally.
+async function findExistingDiscordApprovalMessage(channelId: string, botToken: string, instanceId: string): Promise<DiscordMessage | null> {
+	try {
+		const response = await fetch(`${DISCORD_API_BASE}/channels/${channelId}/messages?limit=50`, {
+			headers: { Authorization: `Bot ${botToken}` },
+			signal: AbortSignal.timeout(DISCORD_WEBHOOK_TIMEOUT_MS),
+		});
+		if (!response.ok) return null;
+		const messages = (await response.json()) as unknown;
+		if (!Array.isArray(messages)) return null;
+		const approveId = `approve:${instanceId}`;
+		for (const message of messages) {
+			if (isRecord(message) && typeof message.id === 'string' && messageHasCustomId(message, approveId)) {
+				return { id: message.id };
+			}
+		}
+		return null;
+	} catch (error) {
+		console.error(JSON.stringify({ event: 'discord_approval_dedupe_check_failed', error: errorMessage(error) }));
+		return null;
+	}
+}
+
+function messageHasCustomId(message: Record<string, unknown>, customId: string): boolean {
+	if (!Array.isArray(message.components)) return false;
+	for (const row of message.components) {
+		if (!isRecord(row) || !Array.isArray(row.components)) continue;
+		for (const component of row.components) {
+			if (isRecord(component) && component.custom_id === customId) return true;
+		}
+	}
+	return false;
+}
+
 export function formatDiscordActor(payload: ApprovalEventPayload): string {
 	return `${payload.actorUsername} (${payload.actorId})`;
 }
 
+// Append-first write: attempting the append and mapping the API's duplicate
+// error to skipped_duplicate is atomic on the API side. The previous
+// read-then-write pattern only saw the first page of the paginated items
+// endpoint and was racy under concurrent approvals (TOCTOU).
 export async function addHostnameToCloudflareOneList(
 	env: ApprovalEnv,
 	reportId: string,
 	hostname: string
 ): Promise<{ status: CloudflareListStatus; error: string | null }> {
 	const list = await getCloudflareOneHostnameList(env);
-	const existingItems = await fetchCloudflareOneListItems(env, list.id);
-	if (existingItems.some((item) => item.value?.toLowerCase() === hostname)) {
-		console.log(JSON.stringify({ event: 'cloudflare_one_list_duplicate', reportId, listId: list.id, hostname }));
-		return { status: 'skipped_duplicate', error: null };
-	}
 
 	const response = await fetch(
 		`${CLOUDFLARE_API_BASE}/accounts/${requireSecret(env.CLOUDFLARE_ACCOUNT_ID, 'CLOUDFLARE_ACCOUNT_ID')}/gateway/lists/${list.id}`,
@@ -248,10 +313,20 @@ export async function addHostnameToCloudflareOneList(
 	);
 
 	const data = (await response.json().catch(() => ({}))) as CloudflareApiResponse<unknown>;
-	if (!response.ok || data.success === false) throw new Error(cloudflareApiError(data, response.status));
+	if (!response.ok || data.success === false) {
+		if (isDuplicateListItemError(data)) {
+			console.log(JSON.stringify({ event: 'cloudflare_one_list_duplicate', reportId, listId: list.id, hostname }));
+			return { status: 'skipped_duplicate', error: null };
+		}
+		throw new Error(cloudflareApiError(data, response.status));
+	}
 
 	console.log(JSON.stringify({ event: 'cloudflare_one_list_hostname_added', reportId, listId: list.id, hostname }));
 	return { status: 'added', error: null };
+}
+
+function isDuplicateListItemError(data: CloudflareApiResponse<unknown>): boolean {
+	return (data.errors || []).some((error) => /duplicate|already exist/i.test(error.message || ''));
 }
 
 async function getCloudflareOneHostnameList(env: ApprovalEnv): Promise<{ id: string; name: string }> {
@@ -266,16 +341,6 @@ async function getCloudflareOneHostnameList(env: ApprovalEnv): Promise<{ id: str
 	const list = (data.result || []).find((item) => item.name === listName && item.type === 'DOMAIN');
 	if (!list?.id || !list.name) throw new Error(`Cloudflare One hostname list not found: ${listName}`);
 	return { id: list.id, name: list.name };
-}
-
-async function fetchCloudflareOneListItems(env: ApprovalEnv, listId: string): Promise<CloudflareZeroTrustListItem[]> {
-	const accountId = requireSecret(env.CLOUDFLARE_ACCOUNT_ID, 'CLOUDFLARE_ACCOUNT_ID');
-	const response = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/gateway/lists/${listId}/items`, {
-		headers: { Authorization: `Bearer ${requireSecret(env.CLOUDFLARE_API_TOKEN, 'CLOUDFLARE_API_TOKEN')}` },
-	});
-	const data = (await response.json().catch(() => ({}))) as CloudflareApiResponse<CloudflareZeroTrustListItem[]>;
-	if (!response.ok || data.success === false) throw new Error(cloudflareApiError(data, response.status));
-	return data.result || [];
 }
 
 function buildDiscordApprovalContent(report: PhishingHostnameWorkflowParams): string {
@@ -351,11 +416,12 @@ async function editDiscordInteractionOriginalMessage(interaction: DiscordInterac
 	const token = interaction.token;
 	if (!applicationId || !token) return;
 
-	await fetch(`${DISCORD_API_BASE}/webhooks/${applicationId}/${token}/messages/@original`, {
-		method: 'PATCH',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(buildDiscordDecisionMessageData(interaction, approved, actorId)),
-	});
+	await discordWebhookRequest(
+		'PATCH',
+		`${DISCORD_API_BASE}/webhooks/${applicationId}/${token}/messages/@original`,
+		buildDiscordDecisionMessageData(interaction, approved, actorId),
+		'discord_original_message_update_failed'
+	);
 }
 
 async function sendDiscordInteractionFollowup(interaction: DiscordInteraction, content: string): Promise<void> {
@@ -363,11 +429,32 @@ async function sendDiscordInteractionFollowup(interaction: DiscordInteraction, c
 	const token = interaction.token;
 	if (!applicationId || !token) return;
 
-	await fetch(`${DISCORD_API_BASE}/webhooks/${applicationId}/${token}`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ content, flags: DISCORD_EPHEMERAL_FLAG, allowed_mentions: { parse: [] } }),
-	});
+	await discordWebhookRequest(
+		'POST',
+		`${DISCORD_API_BASE}/webhooks/${applicationId}/${token}`,
+		{ content, flags: DISCORD_EPHEMERAL_FLAG, allowed_mentions: { parse: [] } },
+		'discord_followup_failed'
+	);
+}
+
+// These calls run inside ctx.waitUntil where an unchecked failure is invisible:
+// check the response and log so a moderator-facing update that never landed is
+// at least observable. The webhook URL embeds the interaction token, so log
+// only the event name and status.
+async function discordWebhookRequest(method: 'POST' | 'PATCH', url: string, body: Record<string, unknown>, failureEvent: string): Promise<void> {
+	try {
+		const response = await fetch(url, {
+			method,
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(DISCORD_WEBHOOK_TIMEOUT_MS),
+		});
+		if (!response.ok) {
+			console.error(JSON.stringify({ event: failureEvent, status: response.status }));
+		}
+	} catch (error) {
+		console.error(JSON.stringify({ event: failureEvent, error: errorMessage(error) }));
+	}
 }
 
 function discordEphemeralResponse(content: string): Response {
@@ -377,6 +464,56 @@ function discordEphemeralResponse(content: string): Response {
 			data: { content, flags: DISCORD_EPHEMERAL_FLAG, allowed_mentions: { parse: [] } },
 		},
 		200
+	);
+}
+
+// Runtime validation for the externally supplied interaction payload.
+// Unknown fields are dropped; only the fields this Worker consumes survive.
+function parseDiscordInteraction(body: string): DiscordInteraction | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(body);
+	} catch {
+		return null;
+	}
+	if (!isRecord(parsed) || typeof parsed.type !== 'number') return null;
+
+	return {
+		id: optionalString(parsed.id),
+		application_id: optionalString(parsed.application_id),
+		type: parsed.type,
+		token: optionalString(parsed.token),
+		data: isRecord(parsed.data) ? { custom_id: optionalString(parsed.data.custom_id) } : undefined,
+		member: isRecord(parsed.member) ? { user: parseDiscordUser(parsed.member.user) } : undefined,
+		user: parseDiscordUser(parsed.user),
+		message: isRecord(parsed.message) ? { id: optionalString(parsed.message.id), content: optionalString(parsed.message.content) } : undefined,
+	};
+}
+
+function parseDiscordUser(value: unknown): DiscordUser | undefined {
+	if (!isRecord(value)) return undefined;
+	return {
+		id: optionalString(value.id),
+		username: optionalString(value.username),
+		global_name: typeof value.global_name === 'string' ? value.global_name : null,
+	};
+}
+
+function optionalString(value: unknown): string | undefined {
+	return typeof value === 'string' ? value : undefined;
+}
+
+// Workflows does not validate waitForEvent payloads against the TypeScript
+// type parameter (see Workflows "Events and parameters" docs), so the Workflow
+// validates the payload before acting on it.
+export function isApprovalEventPayload(value: unknown): value is ApprovalEventPayload {
+	return (
+		isRecord(value) &&
+		typeof value.approved === 'boolean' &&
+		typeof value.actorId === 'string' &&
+		typeof value.actorUsername === 'string' &&
+		typeof value.interactionId === 'string' &&
+		(value.messageId === undefined || typeof value.messageId === 'string')
 	);
 }
 

@@ -42,10 +42,6 @@ function extractHostname(input: string): string {
 			return parsedUrl.hostname;
 		}
 
-		if (input.includes('/') || input.includes('?') || input.includes('#') || input.includes('@') || input.includes(':')) {
-			return new URL(`https://${input}`).hostname;
-		}
-
 		return new URL(`https://${input}`).hostname;
 	} catch (error) {
 		if (error instanceof HostnameNormalizationError) throw error;

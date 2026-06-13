@@ -1,8 +1,16 @@
 import type { PhishingHostnameWorkflowParams } from './approval';
+import {
+	domainCandidates,
+	normalizeDnsName,
+	queryDns,
+	readJsonBody,
+	resolveHostnameIps,
+	toJsonValue,
+} from './rdap.js';
+import type { JsonValue } from './rdap.js';
 import { isRecord, requireConfig } from './shared.js';
 
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
-const CLOUDFLARE_DOH_ENDPOINT = 'https://cloudflare-dns.com/dns-query';
 const CLOUDFLARE_RDAP_DOMAIN_BASE = 'https://rdap.cloudflare.com/rdap/v1/domain';
 const MICROSOFT_MSRC_ABUSE_ENDPOINT = 'https://api.msrc.microsoft.com/report/v3.0/Abuse/report';
 const NETCRAFT_REPORT_URLS_ENDPOINT = 'https://report.netcraft.com/api/v3/report/urls';
@@ -13,7 +21,7 @@ export const PROVIDERS = ['netcraft', 'cloudflare_abuse', 'microsoft_msrc'] as c
 
 export type ProviderName = (typeof PROVIDERS)[number];
 export type ProviderReportStatus = 'not_started' | 'skipped' | 'submitted' | 'failed';
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+export type { JsonValue } from './rdap.js';
 
 export type ProviderReportResult = {
 	provider: ProviderName;
@@ -36,19 +44,6 @@ export type ProviderReportingEnv = {
 	REPORTER_PHONE?: string;
 };
 
-type DnsAnswer = {
-	name?: string;
-	type?: number;
-	TTL?: number;
-	data?: string;
-};
-
-type DnsJsonResponse = {
-	Status?: number;
-	Answer?: DnsAnswer[];
-	Authority?: DnsAnswer[];
-};
-
 type ReporterIdentity = {
 	email: string;
 	name: string;
@@ -60,11 +55,6 @@ type ReporterIdentity = {
 type MicrosoftIpMatch = {
 	ip: string;
 	rdap: JsonValue;
-};
-
-type ResolvedIps = {
-	ips: string[];
-	cnames: string[];
 };
 
 export async function reportToNetcraft(
@@ -90,7 +80,7 @@ export async function reportToNetcraft(
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
 	});
-	const data = await readResponseBody(response);
+	const data = await readJsonBody(response);
 	if (!response.ok) throw providerHttpError('Netcraft', response, data);
 
 	return {
@@ -146,7 +136,7 @@ export async function reportToCloudflareAbuse(
 		},
 		body: JSON.stringify(body),
 	});
-	const data = await readResponseBody(response);
+	const data = await readJsonBody(response);
 	if (!response.ok || (isRecord(data) && data.success === false)) throw providerHttpError('Cloudflare Abuse', response, data);
 
 	return {
@@ -210,7 +200,7 @@ export async function reportToMicrosoftMsrc(
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
 	});
-	const data = await readResponseBody(response);
+	const data = await readJsonBody(response);
 	if (!response.ok) throw providerHttpError('Microsoft MSRC', response, data);
 
 	return {
@@ -256,85 +246,71 @@ export async function findCloudflareNameserver(hostname: string): Promise<{
 	};
 }
 
-async function resolveHostnameIps(hostname: string): Promise<ResolvedIps> {
-	const ips = new Set<string>();
-	const cnames = new Set<string>();
-	const queue = [hostname];
-	const seen = new Set<string>();
-
-	while (queue.length > 0 && seen.size < 8) {
-		const current = queue.shift();
-		if (!current) break;
-		const normalized = normalizeDnsName(current);
-		if (seen.has(normalized)) continue;
-		seen.add(normalized);
-
-		const [aAnswers, aaaaAnswers, cnameAnswers] = await Promise.all([
-			queryDns(normalized, 'A'),
-			queryDns(normalized, 'AAAA'),
-			queryDns(normalized, 'CNAME'),
-		]);
-		for (const answer of [...aAnswers, ...aaaaAnswers, ...cnameAnswers]) {
-			if ((answer.type === 1 || answer.type === 28) && typeof answer.data === 'string') ips.add(answer.data);
-			if (answer.type === 5 && typeof answer.data === 'string') {
-				const cname = normalizeDnsName(answer.data);
-				cnames.add(cname);
-				if (!seen.has(cname)) queue.push(cname);
-			}
-		}
-	}
-
-	return { ips: [...ips], cnames: [...cnames] };
-}
-
 async function findMicrosoftOwnedIp(ips: string[]): Promise<MicrosoftIpMatch | null> {
 	for (const ip of ips) {
 		const response = await fetch(`${RDAP_IP_BASE}/${encodeURIComponent(ip)}`, { headers: { Accept: 'application/rdap+json, application/json' } });
 		if (!response.ok) continue;
-		const data = await readResponseBody(response);
+		const data = await readJsonBody(response);
 		if (containsMicrosoftOwnership(data)) return { ip, rdap: data };
 	}
 	return null;
-}
-
-async function queryDns(name: string, type: string): Promise<DnsAnswer[]> {
-	const url = new URL(CLOUDFLARE_DOH_ENDPOINT);
-	url.searchParams.set('name', name);
-	url.searchParams.set('type', type);
-	const response = await fetch(url.toString(), { headers: { Accept: 'application/dns-json' } });
-	if (!response.ok) throw new Error(`Cloudflare DoH ${type} ${name} HTTP ${response.status}`);
-	const data = (await response.json()) as DnsJsonResponse;
-	if (data.Status !== undefined && ![0, 3].includes(data.Status)) throw new Error(`Cloudflare DoH ${type} ${name} status ${data.Status}`);
-	return data.Answer || [];
 }
 
 async function fetchCloudflareDomainRdap(domain: string): Promise<JsonValue> {
 	const response = await fetch(`${CLOUDFLARE_RDAP_DOMAIN_BASE}/${encodeURIComponent(domain)}`, {
 		headers: { Accept: 'application/rdap+json, application/json' },
 	});
-	const data = await readResponseBody(response);
+	const data = await readJsonBody(response);
 	if (!response.ok) return { http_status: response.status, error: response.statusText || `HTTP ${response.status}`, response: data };
 	return data;
-}
-
-function domainCandidates(hostname: string): string[] {
-	const labels = hostname.split('.').filter(Boolean);
-	const candidates: string[] = [];
-	for (let index = 0; index <= labels.length - 2; index += 1) candidates.push(labels.slice(index).join('.'));
-	return candidates;
 }
 
 function isCloudflareNameserver(value: string): boolean {
 	return value.endsWith('.ns.cloudflare.com');
 }
 
-function normalizeDnsName(value: string): string {
-	return value.trim().toLowerCase().replace(/\.+$/, '');
+const MICROSOFT_OWNERSHIP_REGEX = /\b(microsoft|msft|azure)\b/i;
+
+// Match only RDAP ownership fields (network name/handle and entity
+// names/handles/vCard organizations). Substring-matching the whole document
+// could false-positive on remarks or links that merely mention these terms,
+// which would file an MSRC report against a non-Microsoft IP.
+function containsMicrosoftOwnership(value: JsonValue): boolean {
+	return collectRdapOwnershipStrings(value).some((item) => MICROSOFT_OWNERSHIP_REGEX.test(item));
 }
 
-function containsMicrosoftOwnership(value: JsonValue): boolean {
-	const haystack = JSON.stringify(value).toLowerCase();
-	return haystack.includes('microsoft') || haystack.includes('msft') || haystack.includes('azure');
+function collectRdapOwnershipStrings(value: JsonValue): string[] {
+	if (!isRecord(value)) return [];
+	const strings: string[] = [];
+	for (const key of ['name', 'handle', 'org']) {
+		const item = value[key];
+		if (typeof item === 'string') strings.push(item);
+	}
+	if (Array.isArray(value.entities)) {
+		for (const entity of value.entities) strings.push(...collectRdapEntityStrings(entity));
+	}
+	return strings;
+}
+
+function collectRdapEntityStrings(entity: unknown): string[] {
+	if (!isRecord(entity)) return [];
+	const strings: string[] = [];
+	if (typeof entity.handle === 'string') strings.push(entity.handle);
+	strings.push(...vcardNameValues(entity.vcardArray));
+	if (Array.isArray(entity.entities)) {
+		for (const nested of entity.entities) strings.push(...collectRdapEntityStrings(nested));
+	}
+	return strings;
+}
+
+// vcardArray shape: ["vcard", [["fn", {}, "text", "Microsoft Corporation"], ...]]
+function vcardNameValues(vcardArray: unknown): string[] {
+	if (!Array.isArray(vcardArray) || !Array.isArray(vcardArray[1])) return [];
+	const names: string[] = [];
+	for (const entry of vcardArray[1]) {
+		if (Array.isArray(entry) && (entry[0] === 'fn' || entry[0] === 'org') && typeof entry[3] === 'string') names.push(entry[3]);
+	}
+	return names;
 }
 
 function microsoftIncidentType(category: string): string {
@@ -376,29 +352,6 @@ function truncate(value: string, maxLength: number): string {
 
 function compactObject(value: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== null && item !== ''));
-}
-
-async function readResponseBody(response: Response): Promise<JsonValue> {
-	const contentType = response.headers.get('Content-Type') || '';
-	if (contentType.includes('json')) return response.json().then(toJsonValue).catch(() => ({}));
-	const text = await response.text().catch(() => '');
-	if (!text) return {};
-	try {
-		return toJsonValue(JSON.parse(text) as unknown);
-	} catch {
-		return { text };
-	}
-}
-
-function toJsonValue(value: unknown): JsonValue {
-	if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
-	if (Array.isArray(value)) return value.map(toJsonValue);
-	if (isRecord(value)) {
-		const output: { [key: string]: JsonValue } = {};
-		for (const [key, item] of Object.entries(value)) output[key] = toJsonValue(item);
-		return output;
-	}
-	return String(value);
 }
 
 function providerHttpError(provider: string, response: Response, data: JsonValue): Error {

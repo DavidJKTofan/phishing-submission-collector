@@ -23,6 +23,28 @@ window.onloadTurnstileCallback = function () {
 	renderTurnstileWidget();
 };
 
+function currentSiteTheme() {
+	return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+// Keep the Turnstile widget's theme in sync with the site theme toggle.
+// Turnstile has no live "set theme" API, so we re-render the widget. We do
+// this even if a token is already held: the managed challenge re-issues a
+// token automatically (usually without interaction), so this matches the
+// old live theme-switching behavior. We clear the stale token first and let
+// the success callback re-enable submission once the new widget completes.
+document.addEventListener('themechange', function () {
+	if (!window.turnstile || state.turnstileWidget === null) return;
+	try {
+		window.turnstile.remove(state.turnstileWidget);
+		state.turnstileWidget = null;
+		clearTurnstileToken();
+		renderTurnstileWidget();
+	} catch (error) {
+		console.error('Error re-rendering Turnstile after theme change:', error);
+	}
+});
+
 document.addEventListener('DOMContentLoaded', function () {
 	initializeElements();
 	setupFormValidation();
@@ -76,8 +98,9 @@ function renderTurnstileWidget() {
 		state.turnstileWidget = window.turnstile.render('#turnstile-container', {
 			sitekey,
 			action: 'submit-report',
-			theme: 'auto',
-			size: 'normal',
+			// Follow the site's manual theme toggle rather than the OS setting.
+			theme: currentSiteTheme(),
+			size: 'flexible',
 			retry: 'auto',
 			'retry-interval': 8000,
 			'refresh-expired': 'manual',
@@ -279,18 +302,27 @@ function validateField(fieldId) {
 
 function validateForm() {
 	const fields = ['name', 'category', 'source', 'url'];
-	let isValid = true;
+	let firstInvalidField = null;
 
 	fields.forEach((fieldId) => {
-		if (!validateField(fieldId)) isValid = false;
+		if (!validateField(fieldId)) firstInvalidField = firstInvalidField || fieldId;
 	});
 
 	const description = document.getElementById('description').value;
 	if (description.length > 500) {
 		showFieldError('description', 'Description must be 500 characters or less');
 		document.getElementById('description').classList.add('error');
-		isValid = false;
+		firstInvalidField = firstInvalidField || 'description';
 	}
+
+	// Move focus to the first invalid field so keyboard and screen-reader
+	// users land on the problem instead of staying on the submit button.
+	if (firstInvalidField) {
+		document.getElementById(firstInvalidField).focus();
+		return false;
+	}
+
+	let isValid = true;
 
 	if (!elements.turnstileResponse.value) {
 		showError('Please complete the security verification');
@@ -310,12 +342,15 @@ function showFieldError(fieldId, message) {
 		errorElement.textContent = message;
 		errorElement.style.display = 'block';
 	}
+	document.getElementById(fieldId).setAttribute('aria-invalid', 'true');
 }
 
 function clearFieldError(fieldId) {
 	const errorElement = document.getElementById(`${fieldId}-error`);
 	if (errorElement) errorElement.style.display = 'none';
-	document.getElementById(fieldId).classList.remove('error');
+	const field = document.getElementById(fieldId);
+	field.classList.remove('error');
+	field.removeAttribute('aria-invalid');
 }
 
 function showError(message) {
@@ -348,16 +383,18 @@ async function submitForm() {
 	elements.submitBtn.classList.add('loading');
 	setSubmitEnabled(false);
 
+	// The UI presents positive "run this service" toggles; the API expects
+	// inverted skip_* flags.
 	const formData = {
 		name: document.getElementById('name').value.trim(),
 		category: document.getElementById('category').value,
 		source: document.getElementById('source').value,
 		url: document.getElementById('url').value.trim(),
 		description: document.getElementById('description').value.trim(),
-		skip_urlscan: document.getElementById('skip_urlscan').checked,
-		skip_virustotal: document.getElementById('skip_virustotal').checked,
-		skip_ipqualityscore: document.getElementById('skip_ipqualityscore').checked,
-		skip_cloudflare: document.getElementById('skip_cloudflare').checked,
+		skip_urlscan: !document.getElementById('run_urlscan').checked,
+		skip_virustotal: !document.getElementById('run_virustotal').checked,
+		skip_ipqualityscore: !document.getElementById('run_ipqualityscore').checked,
+		skip_cloudflare: !document.getElementById('run_cloudflare').checked,
 		'cf-turnstile-response': elements.turnstileResponse.value,
 	};
 
@@ -418,11 +455,28 @@ function handleSubmissionSuccess(data) {
 	details.appendChild(reportIdRow);
 
 	if (data.submitted_url) {
-		const googleRow = createResultRow('Google Safe Browsing');
-		googleRow.appendChild(document.createTextNode('Please also report this URL manually: '));
-		googleRow.appendChild(
+		// Google does not offer an API for phishing submissions, so the reporter
+		// must finish this step manually. Make it the prominent next action.
+		const cta = createElement('div', { className: 'result-cta' });
+
+		const ctaTitle = createElement('h3', { className: 'result-cta-title' });
+		ctaTitle.appendChild(createElement('span', { className: 'result-cta-icon', text: '👉', attrs: { 'aria-hidden': 'true' } }));
+		ctaTitle.appendChild(document.createTextNode('One more step: report to Google Safe Browsing'));
+		cta.appendChild(ctaTitle);
+
+		// A <div> (not <p>) so the generic `.result-details p` card styling
+		// does not apply to this explanatory text.
+		cta.appendChild(
+			createElement('div', {
+				className: 'result-cta-text',
+				text: 'Google requires phishing URLs to be submitted manually. Open the pre-filled report form to help protect Chrome, Android, and Gmail users.',
+			})
+		);
+
+		cta.appendChild(
 			createElement('a', {
-				text: 'Open Google report form',
+				className: 'result-cta-button',
+				text: 'Report to Google Safe Browsing →',
 				attrs: {
 					href: `https://safebrowsing.google.com/safebrowsing/report_phish/?hl=en&url=${encodeURIComponent(data.submitted_url)}`,
 					target: '_blank',
@@ -430,8 +484,11 @@ function handleSubmissionSuccess(data) {
 				},
 			})
 		);
-		details.appendChild(googleRow);
+
+		details.appendChild(cta);
 	}
+
+	renderAbuseContacts(details, data);
 
 	const apiResults = [
 		{
@@ -485,9 +542,72 @@ function handleSubmissionSuccess(data) {
 	}
 
 	resultContainer.appendChild(details);
+	// Focusable so we can move screen-reader/keyboard focus to the outcome.
+	resultContainer.setAttribute('tabindex', '-1');
 	elements.form.parentNode.insertBefore(resultContainer, elements.form.nextSibling);
 
-	setTimeout(() => resultContainer.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+	setTimeout(() => {
+		resultContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		resultContainer.focus({ preventScroll: true });
+	}, 100);
+}
+
+// Renders an optional "notify the provider's abuse contact" call-to-action when
+// the backend resolved a registrar and/or hosting abuse email via RDAP. Each
+// becomes a pre-filled mailto so the reporter can escalate directly.
+function renderAbuseContacts(details, data) {
+	const contacts = data.abuse_contacts;
+	if (!contacts || (!contacts.registrar && !contacts.host)) return;
+
+	const section = createElement('div', { className: 'result-contacts' });
+
+	const title = createElement('h3', { className: 'result-contacts-title' });
+	title.appendChild(createElement('span', { className: 'result-contacts-icon', text: '📨', attrs: { 'aria-hidden': 'true' } }));
+	title.appendChild(document.createTextNode('Notify the provider abuse contacts'));
+	section.appendChild(title);
+
+	section.appendChild(
+		createElement('div', {
+			className: 'result-contacts-text',
+			text: 'If you have confirmed this is malicious, you can also email the hosting and registrar abuse contacts on record. Reporting to the provider is often the fastest route to takedown.',
+		})
+	);
+
+	const list = createElement('div', { className: 'result-contacts-list' });
+	[
+		{ contact: contacts.registrar, role: 'Registrar abuse' },
+		{ contact: contacts.host, role: 'Hosting abuse' },
+	].forEach((entry) => {
+		if (!entry.contact || !entry.contact.email) return;
+		list.appendChild(buildAbuseContactButton(entry.role, entry.contact, data));
+	});
+
+	section.appendChild(list);
+	details.appendChild(section);
+}
+
+function buildAbuseContactButton(role, contact, data) {
+	const subject = `Phishing/abuse report: ${data.normalized_hostname || data.submitted_url || ''}`;
+	const body = [
+		'Hello,',
+		'',
+		'I am reporting a suspected phishing / malicious website associated with your service:',
+		'',
+		`URL: ${data.submitted_url || ''}`,
+		`Hostname: ${data.normalized_hostname || ''}`,
+		`Report reference: ${data.id || ''}`,
+		'',
+		'Please investigate and take appropriate action.',
+		'',
+		'Thank you.',
+	].join('\n');
+	const href = `mailto:${contact.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+	const link = createElement('a', { className: 'result-contact-button', attrs: { href } });
+	link.appendChild(createElement('span', { className: 'result-contact-role', text: role }));
+	const target = contact.name ? `${contact.name} · ${contact.email}` : contact.email;
+	link.appendChild(createElement('span', { className: 'result-contact-email', text: target }));
+	return link;
 }
 
 function handleSubmissionError(data) {

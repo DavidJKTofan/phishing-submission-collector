@@ -58,6 +58,39 @@ body {
 	min-height: 100vh;
 	position: relative;
 	overflow-x: hidden;
+	accent-color: var(--primary);
+}
+
+/* Visible keyboard-focus indicator for all interactive elements */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+/* Shown only when JavaScript is disabled */
+.noscript-notice {
+	padding: 1rem 1.25rem;
+	background: #fef3c7;
+	color: #92400e;
+	border-bottom: 2px solid var(--warning);
+	text-align: center;
+	font-weight: 600;
+	position: relative;
+	z-index: 2;
+}
+
+/* The notice only renders when JS is off, so data-theme is never set;
+   key the dark variant off the OS preference. */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme]) .noscript-notice {
+		background: #451a03;
+		color: #fde68a;
+	}
 }
 
 /* Animated Background */
@@ -504,9 +537,15 @@ textarea {
 	font-size: 1.25rem;
 }
 
+.options-hint {
+	padding: 1rem 1.25rem 0;
+	border-top: 2px solid var(--border);
+	color: var(--text-light);
+	font-size: 0.9rem;
+}
+
 .options-grid {
 	padding: 1.25rem;
-	border-top: 2px solid var(--border);
 	display: grid;
 	gap: 1rem;
 }
@@ -528,8 +567,23 @@ textarea {
 	background: white;
 }
 
+/* Visually hidden but still focusable, so the custom checkbox stays
+   keyboard-operable (display:none would remove it from the tab order). */
 .checkbox-label input[type='checkbox'] {
-	display: none;
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	clip-path: inset(50%);
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.checkbox-label input[type='checkbox']:focus-visible + .checkbox-custom {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
 }
 
 .checkbox-custom {
@@ -582,9 +636,14 @@ textarea {
 	gap: 0.75rem;
 }
 
+/* Turnstile renders with size:flexible — it fills the container width
+   (minimum 300px per Cloudflare docs). */
 #turnstile-container {
 	display: flex;
 	justify-content: center;
+	width: 100%;
+	max-width: 420px;
+	min-width: 300px;
 }
 
 .turnstile-error {
@@ -644,10 +703,15 @@ textarea {
 }
 
 .submit-button:disabled {
-	background: linear-gradient(135deg, #cbd5e1, #94a3b8);
+	background: var(--border);
+	color: var(--text-light);
 	cursor: not-allowed;
 	box-shadow: none;
 	transform: none;
+}
+
+.submit-button:disabled::before {
+	display: none;
 }
 
 .button-content {
@@ -743,38 +807,147 @@ textarea {
 	text-decoration: underline;
 }
 
-.result-code {
-	display: inline-block;
-	padding: 0.5rem;
-	background: white;
-	border-radius: 8px;
-	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+/* Primary call-to-action inside the success result: the manual Google Safe
+   Browsing report the reporter still needs to complete. Selectors are scoped
+   under .result-cta so they beat the generic `.result-details a` link rules. */
+.result-cta {
+	padding: 1.5rem;
+	background: var(--surface);
+	border: 2px solid var(--primary);
+	border-radius: 16px;
+	box-shadow: 0 6px 18px rgba(59, 130, 246, 0.18);
+}
+
+.result-cta-title {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	font-size: 1.15rem;
+	font-weight: 700;
+	color: var(--text);
+	margin-bottom: 0.5rem;
+}
+
+.result-cta-icon {
+	font-size: 1.3rem;
+	line-height: 1;
+}
+
+.result-cta .result-cta-text {
+	color: var(--text-light);
+	font-size: 0.95rem;
+	margin-bottom: 1.25rem;
+}
+
+.result-cta .result-cta-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	width: 100%;
+	padding: 0.95rem 1.5rem;
+	background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+	color: #ffffff;
+	font-size: 1.05rem;
+	font-weight: 700;
+	text-decoration: none;
+	border-radius: 12px;
+	box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+	transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.result-cta .result-cta-button:hover {
+	color: #ffffff;
+	text-decoration: none;
+	transform: translateY(-2px);
+	box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+}
+
+.result-cta .result-cta-button:active {
+	transform: translateY(0);
+}
+
+.result-cta .result-cta-button:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+}
+
+/* Secondary call-to-action: RDAP-derived registrar/host abuse contacts. Kept
+   visually lighter than the primary Google CTA above it. */
+.result-contacts {
+	padding: 1.5rem;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 16px;
+}
+
+.result-contacts-title {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	font-size: 1.05rem;
+	font-weight: 700;
+	color: var(--text);
+	margin-bottom: 0.5rem;
+}
+
+.result-contacts-icon {
+	font-size: 1.2rem;
+	line-height: 1;
+}
+
+.result-contacts .result-contacts-text {
+	color: var(--text-light);
+	font-size: 0.9rem;
+	margin-bottom: 1rem;
+}
+
+.result-contacts-list {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.result-contacts .result-contact-button {
+	display: flex;
+	flex-direction: column;
+	gap: 0.2rem;
+	padding: 0.85rem 1rem;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	text-decoration: none;
+	transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.result-contacts .result-contact-button:hover {
+	text-decoration: none;
+	transform: translateY(-1px);
+	border-color: var(--primary);
+	box-shadow: 0 4px 14px var(--shadow);
+}
+
+.result-contacts .result-contact-button:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+.result-contact-role {
+	font-size: 0.78rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--text-light);
+}
+
+.result-contact-email {
+	font-size: 0.98rem;
+	font-weight: 600;
+	color: var(--primary-dark);
 	overflow-wrap: anywhere;
 }
 
-.api-error-details {
-	margin-top: 1rem;
-	padding: 1rem;
-	background: #fef3c7;
-	border: 2px solid var(--warning);
-	border-radius: 12px;
-	color: #78350f;
-}
-
-.api-error-details summary {
-	cursor: pointer;
-	font-weight: 600;
-	color: #92400e;
-	user-select: none;
-}
-
-.api-error-details ul {
-	margin-top: 0.75rem;
-	padding-left: 1.5rem;
-}
-
-.api-error-details li {
-	margin: 0.5rem 0;
+:root[data-theme='dark'] .result-contact-email {
+	color: var(--primary-light);
 }
 
 /* Footer */

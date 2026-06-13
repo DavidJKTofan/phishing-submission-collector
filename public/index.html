@@ -1,6 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+
 		<!-- Primary Meta Tags -->
 		<title>Phishing Submission Collector - Report & Analyze Malicious Threats</title>
 		<meta
@@ -9,8 +14,6 @@
 		/>
 		<meta name="keywords" content="phishing, malware, URL analysis, phishing reports, cybersecurity, threat detection, D1 database" />
 		<meta name="author" content="PRIVATE" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<meta charset="UTF-8" />
 		<meta property="og:title" content="Phishing Submission Collector - Report & Analyze Malicious Threats" />
 		<meta
 			property="og:description"
@@ -50,6 +53,12 @@
 	</head>
 
 	<body>
+		<noscript>
+			<div class="noscript-notice" role="alert">
+				JavaScript is required to submit reports on this page. Please enable JavaScript, or use the provider links below to report
+				directly.
+			</div>
+		</noscript>
 		<!-- Theme Toggle -->
 		<button
 			type="button"
@@ -181,7 +190,16 @@
 								Name / Identifier
 								<span class="required">*</span>
 							</label>
-							<input type="text" id="name" name="name" required placeholder="John Doe" autocomplete="name" aria-required="true" />
+							<input
+								type="text"
+								id="name"
+								name="name"
+								required
+								placeholder="John Doe"
+								autocomplete="name"
+								aria-required="true"
+								aria-describedby="name-error"
+							/>
 							<span class="field-error" id="name-error"></span>
 						</div>
 
@@ -190,7 +208,7 @@
 								Threat Category
 								<span class="required">*</span>
 							</label>
-							<select id="category" name="category" required aria-required="true">
+							<select id="category" name="category" required aria-required="true" aria-describedby="category-error">
 								<option value="">Choose category...</option>
 								<option value="Phishing">🎣 Phishing</option>
 								<option value="Crypto Scam">₿ Crypto Scam</option>
@@ -206,7 +224,7 @@
 								Discovery Source
 								<span class="required">*</span>
 							</label>
-							<select id="source" name="source" required aria-required="true">
+							<select id="source" name="source" required aria-required="true" aria-describedby="source-error">
 								<option value="">Where did you find this?</option>
 								<option value="Email">📧 Email</option>
 								<option value="SMS">💬 SMS</option>
@@ -229,9 +247,12 @@
 								required
 								placeholder="https://suspicious-website.com or suspicious-website.com"
 								autocomplete="url"
+								spellcheck="false"
+								autocapitalize="off"
 								aria-required="true"
+								aria-describedby="url-hint url-error"
 							/>
-							<span class="field-hint">Enter a full URL or a hostname/domain.</span>
+							<span class="field-hint" id="url-hint">Enter a full URL or a hostname/domain.</span>
 							<span class="field-error" id="url-error"></span>
 						</div>
 
@@ -243,6 +264,7 @@
 								placeholder="Describe the threat, how you encountered it, or any other relevant information..."
 								rows="4"
 								maxlength="500"
+								aria-describedby="description-hint description-error"
 							></textarea>
 							<span class="field-hint" id="description-hint">Optional - Maximum 500 characters</span>
 							<span class="field-error" id="description-error"></span>
@@ -252,42 +274,43 @@
 					<!-- Advanced Options -->
 					<details class="advanced-options">
 						<summary>
-							<span class="summary-icon">⚙️</span>
-							<span>Advanced API Settings</span>
+							<span class="summary-icon" aria-hidden="true">⚙️</span>
+							<span>Analysis Services</span>
 						</summary>
-						<div class="options-grid">
+						<p class="options-hint" id="options-hint">Choose which security services analyze the submitted URL.</p>
+						<div class="options-grid" role="group" aria-labelledby="options-hint">
 							<label class="checkbox-label">
-								<input type="checkbox" id="skip_urlscan" name="skip_urlscan" />
-								<span class="checkbox-custom"></span>
+								<input type="checkbox" id="run_urlscan" name="run_urlscan" checked />
+								<span class="checkbox-custom" aria-hidden="true"></span>
 								<span class="checkbox-text">
-									<strong>Skip URLScan.io</strong>
+									<strong>URLScan.io</strong>
 									<small>Comprehensive URL analysis and screenshots</small>
 								</span>
 							</label>
 
 							<label class="checkbox-label">
-								<input type="checkbox" id="skip_virustotal" name="skip_virustotal" />
-								<span class="checkbox-custom"></span>
+								<input type="checkbox" id="run_virustotal" name="run_virustotal" checked />
+								<span class="checkbox-custom" aria-hidden="true"></span>
 								<span class="checkbox-text">
-									<strong>Skip VirusTotal</strong>
+									<strong>VirusTotal</strong>
 									<small>Multi-engine malware detection</small>
 								</span>
 							</label>
 
 							<label class="checkbox-label">
-								<input type="checkbox" id="skip_ipqualityscore" name="skip_ipqualityscore" checked />
-								<span class="checkbox-custom"></span>
+								<input type="checkbox" id="run_ipqualityscore" name="run_ipqualityscore" />
+								<span class="checkbox-custom" aria-hidden="true"></span>
 								<span class="checkbox-text">
-									<strong>Skip IPQualityScore</strong>
+									<strong>IPQualityScore</strong>
 									<small>Fraud detection and risk scoring</small>
 								</span>
 							</label>
 
 							<label class="checkbox-label">
-								<input type="checkbox" id="skip_cloudflare" name="skip_cloudflare" />
-								<span class="checkbox-custom"></span>
+								<input type="checkbox" id="run_cloudflare" name="run_cloudflare" checked />
+								<span class="checkbox-custom" aria-hidden="true"></span>
 								<span class="checkbox-text">
-									<strong>Skip Cloudflare Radar</strong>
+									<strong>Cloudflare Radar</strong>
 									<small>URL security scanning service</small>
 								</span>
 							</label>

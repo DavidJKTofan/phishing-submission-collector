@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { it as test } from 'vitest';
 
-import { HostnameNormalizationError, buildScanUrl, normalizeReportedHostname } from '/private/tmp/phishing-submission-collector-tests/src/hostname.js';
+import { HostnameNormalizationError, buildScanUrl, normalizeReportedHostname } from '../src/hostname';
 
 test('normalizes full URLs to exact hostnames', () => {
 	assert.equal(normalizeReportedHostname('https://Login.Bad.Example/path?x=1'), 'login.bad.example');

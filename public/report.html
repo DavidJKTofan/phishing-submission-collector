@@ -3,6 +3,8 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
 		<title>Report Phishing - Where to Report Malicious URLs</title>
 		<meta
 			name="description"
@@ -88,6 +90,20 @@
 				color: var(--text-primary);
 				-webkit-font-smoothing: antialiased;
 				-moz-osx-font-smoothing: grayscale;
+				accent-color: var(--primary);
+			}
+
+			/* Visible keyboard-focus indicator for all interactive elements */
+			a:focus-visible,
+			button:focus-visible,
+			input:focus-visible {
+				outline: 2px solid var(--primary);
+				outline-offset: 2px;
+			}
+
+			header a:focus-visible,
+			.email-section a:focus-visible {
+				outline-color: white;
 			}
 
 			.container {
@@ -185,6 +201,20 @@
 				border-color: rgba(255, 255, 255, 0.5);
 			}
 
+			/* Solid variant for buttons on card backgrounds (where the white
+			   .btn-primary would wash out). */
+			.btn-solid {
+				background: var(--primary);
+				color: white;
+				box-shadow: var(--shadow-md);
+			}
+
+			.btn-solid:hover {
+				background: var(--primary-dark);
+				transform: translateY(-2px);
+				box-shadow: var(--shadow-lg);
+			}
+
 			/* Quick Start Guide */
 			.quick-start {
 				background: var(--bg-primary);
@@ -265,7 +295,7 @@
 			}
 
 			.sub-item {
-				background: white;
+				background: var(--bg-primary);
 				padding: 0.75rem 1rem;
 				border-radius: var(--radius-sm);
 				font-size: 0.9375rem;
@@ -670,6 +700,47 @@
 			}
 
 			/* Report Status Section */
+			.status-form {
+				max-width: 640px;
+				margin: 0 auto;
+			}
+
+			.status-form .form-group {
+				margin-bottom: 1.25rem;
+			}
+
+			.status-form label {
+				display: block;
+				font-weight: 600;
+				margin-bottom: 0.5rem;
+				color: var(--text-primary);
+			}
+
+			.status-form input[type='text'] {
+				width: 100%;
+				padding: 0.875rem 1rem;
+				border: 2px solid var(--border);
+				border-radius: var(--radius-sm);
+				font-size: 1rem;
+				font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+				background: var(--bg-secondary);
+				color: var(--text-primary);
+				transition: border-color 0.2s, box-shadow 0.2s;
+			}
+
+			.status-form input[type='text']:focus {
+				outline: none;
+				border-color: var(--primary);
+				box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+			}
+
+			.status-form .field-hint {
+				display: block;
+				margin-top: 0.5rem;
+				font-size: 0.875rem;
+				color: var(--text-muted);
+			}
+
 			.result-container {
 				margin-top: 2rem;
 				padding: 1.5rem;
@@ -679,6 +750,113 @@
 				box-shadow: var(--shadow-sm);
 			}
 
+			.report-heading {
+				display: flex;
+				flex-wrap: wrap;
+				align-items: baseline;
+				gap: 0.5rem;
+				font-size: 1.25rem;
+				font-weight: 700;
+				margin-bottom: 1rem;
+			}
+
+			.report-id {
+				font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+				font-size: 0.95rem;
+				font-weight: 500;
+				color: var(--text-secondary);
+				word-break: break-all;
+			}
+
+			.status-row {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 0.75rem;
+				margin-bottom: 0.5rem;
+			}
+
+			.status-badge {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.5rem;
+				padding: 0.45rem 0.85rem;
+				border-radius: 9999px;
+				font-size: 0.95rem;
+				font-weight: 600;
+				border: 1px solid transparent;
+			}
+
+			.status-badge-label {
+				font-size: 0.72rem;
+				font-weight: 700;
+				text-transform: uppercase;
+				letter-spacing: 0.04em;
+				opacity: 0.75;
+			}
+
+			.badge-success {
+				background: #dcfce7;
+				color: #166534;
+				border-color: #86efac;
+			}
+
+			.badge-danger {
+				background: #fee2e2;
+				color: #991b1b;
+				border-color: #fca5a5;
+			}
+
+			.badge-pending {
+				background: #fef3c7;
+				color: #92400e;
+				border-color: #fcd34d;
+			}
+
+			.badge-neutral {
+				background: var(--bg-tertiary);
+				color: var(--text-secondary);
+				border-color: var(--border);
+			}
+
+			:root[data-theme='dark'] .badge-success {
+				background: rgba(22, 101, 52, 0.25);
+				color: #86efac;
+				border-color: #166534;
+			}
+
+			:root[data-theme='dark'] .badge-danger {
+				background: rgba(153, 27, 27, 0.25);
+				color: #fca5a5;
+				border-color: #991b1b;
+			}
+
+			:root[data-theme='dark'] .badge-pending {
+				background: rgba(146, 64, 14, 0.25);
+				color: #fcd34d;
+				border-color: #92400e;
+			}
+
+			.status-hint {
+				font-size: 0.85rem;
+				color: var(--text-secondary);
+				margin: 0.5rem 0 0;
+			}
+
+			.status-note {
+				font-size: 0.8rem;
+				color: var(--text-muted);
+				margin: 0.25rem 0 1.5rem;
+			}
+
+			.report-section-heading {
+				font-size: 0.8rem;
+				font-weight: 700;
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+				color: var(--text-muted);
+				margin: 1.5rem 0 0.75rem;
+			}
+
 			.report-grid {
 				display: grid;
 				grid-template-columns: 1fr 1fr;
@@ -686,13 +864,101 @@
 			}
 
 			.report-item {
-				padding: 0.5rem;
+				padding: 0.75rem 0.85rem;
 				background: var(--bg-tertiary);
 				border-radius: var(--radius-sm);
+				border: 1px solid var(--border);
+				overflow-wrap: anywhere;
+			}
+
+			.report-item strong {
+				display: block;
+				font-size: 0.72rem;
+				font-weight: 700;
+				text-transform: uppercase;
+				letter-spacing: 0.03em;
+				color: var(--text-muted);
+				margin-bottom: 0.25rem;
 			}
 
 			.report-item.full-width {
 				grid-column: 1 / -1;
+			}
+
+			.report-cta {
+				margin-top: 2rem;
+				padding: 1.5rem;
+				background: var(--bg-tertiary);
+				border: 1px solid var(--border);
+				border-radius: var(--radius-md);
+			}
+
+			.report-cta-title {
+				font-size: 1.05rem;
+				font-weight: 700;
+				color: var(--text-primary);
+				margin-bottom: 0.5rem;
+			}
+
+			.report-cta-text {
+				font-size: 0.9rem;
+				color: var(--text-secondary);
+				margin-bottom: 1rem;
+			}
+
+			.report-cta-actions {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 0.75rem;
+			}
+
+			.report-cta-link {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.4rem;
+				padding: 0.7rem 1.1rem;
+				border-radius: var(--radius-sm);
+				font-weight: 600;
+				font-size: 0.95rem;
+				text-decoration: none;
+				transition: background 0.2s, border-color 0.2s, transform 0.2s;
+			}
+
+			.report-cta-link.primary {
+				background: var(--primary);
+				color: #fff;
+			}
+
+			.report-cta-link.primary:hover {
+				background: var(--primary-dark);
+				transform: translateY(-1px);
+			}
+
+			.report-cta-link.secondary {
+				background: transparent;
+				color: var(--primary);
+				border: 1px solid var(--border);
+			}
+
+			.report-cta-link.secondary:hover {
+				border-color: var(--primary);
+				transform: translateY(-1px);
+			}
+
+			:root[data-theme='dark'] .report-cta-link.secondary {
+				color: var(--primary-light);
+			}
+
+			.report-cta-note {
+				font-size: 0.8rem;
+				color: var(--text-muted);
+				margin-top: 0.85rem;
+			}
+
+			@media (max-width: 560px) {
+				.report-grid {
+					grid-template-columns: 1fr;
+				}
 			}
 
 			.alert {
@@ -864,6 +1130,10 @@
 					<a href="#email-reporting" class="btn btn-secondary">
 						<span>📧</span>
 						<span>Report Phishing Emails</span>
+					</a>
+					<a href="#report-status" class="btn btn-secondary">
+						<span>🔎</span>
+						<span>Check Report Status</span>
 					</a>
 				</div>
 			</div>
@@ -1511,15 +1781,28 @@
 
 			<section id="report-status" class="quick-start">
 				<h2>Check Report Status</h2>
-				<form id="reportStatusForm">
+				<form id="reportStatusForm" class="status-form" novalidate>
 					<div class="form-group">
 						<label for="reportId">Enter your Report ID</label>
-						<input type="text" id="reportId" name="reportId" placeholder="e.g., 123e4567-e89b-12d3-a456-426614174000" required />
+						<input
+							type="text"
+							id="reportId"
+							name="reportId"
+							placeholder="e.g., 123e4567-e89b-12d3-a456-426614174000"
+							required
+							autocomplete="off"
+							spellcheck="false"
+							autocapitalize="off"
+							aria-describedby="reportId-hint"
+						/>
+						<span class="field-hint" id="reportId-hint"
+							>The Report ID was shown after you submitted a URL on the <a href="/">submission form</a>.</span
+						>
 					</div>
-					<button type="submit" class="btn btn-primary">Check Status</button>
+					<button type="submit" class="btn btn-solid">Check Status</button>
 				</form>
-				<div id="reportResult" class="result-container" style="display: none"></div>
-				<div id="errorMessage" class="alert alert-error" style="display: none"></div>
+				<div id="reportResult" class="result-container" style="display: none" tabindex="-1"></div>
+				<div id="errorMessage" class="alert alert-error" style="display: none" role="alert"></div>
 			</section>
 		</main>
 

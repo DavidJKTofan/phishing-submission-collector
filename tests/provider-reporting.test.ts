@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test, { afterEach } from 'node:test';
+import { afterEach, it as test } from 'vitest';
 
 import {
 	capProviderResult,
@@ -7,7 +7,11 @@ import {
 	reportToCloudflareAbuse,
 	reportToMicrosoftMsrc,
 	reportToNetcraft,
-} from '/private/tmp/phishing-submission-collector-tests/src/provider-reporting.js';
+} from '../src/provider-reporting';
+import type { ProviderReportResult, ProviderReportingEnv } from '../src/provider-reporting';
+import type { PhishingHostnameWorkflowParams } from '../src/approval';
+
+type FetchCall = { url: string; init: RequestInit };
 
 const originalFetch = globalThis.fetch;
 
@@ -23,7 +27,7 @@ test('reports approved URLs to Netcraft', async () => {
 	assert.equal(result.status, 'submitted');
 	assert.equal(result.referenceId, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 	assert.equal(calls[0].url, 'https://report.netcraft.com/api/v3/report/urls');
-	const body = JSON.parse(calls[0].init.body);
+	const body = JSON.parse(String(calls[0].init.body));
 	assert.equal(body.email, 'reports@example.com');
 	assert.equal(body.source, 'source-uuid');
 	assert.equal(body.urls[0].url, 'https://login.bad.example/path');
@@ -69,8 +73,9 @@ test('submits Cloudflare abuse reports only when Cloudflare nameservers match', 
 
 	assert.equal(result.status, 'submitted');
 	assert.equal(result.referenceId, 'cf-report-1');
-	assert.equal(calls.at(-1).init.method, 'POST');
-	const body = JSON.parse(calls.at(-1).init.body);
+	const lastCall = calls[calls.length - 1];
+	assert.equal(lastCall.init.method, 'POST');
+	const body = JSON.parse(String(lastCall.init.body));
 	assert.equal(body.act, 'abuse_phishing');
 	assert.equal(body.urls, 'https://login.bad.example/path');
 	assert.equal(body.host_notification, 'send-anon');
@@ -88,7 +93,7 @@ test('skips Cloudflare abuse reports when nameservers are not Cloudflare', async
 	const result = await reportToCloudflareAbuse(makeEnv(), makeReport());
 
 	assert.equal(result.status, 'skipped');
-	assert.match(result.eligibilityReason, /No Cloudflare nameservers/);
+	assert.match(result.eligibilityReason ?? '', /No Cloudflare nameservers/);
 	assert.equal(calls.some((call) => call.url.includes('/abuse-reports/')), false);
 });
 
@@ -114,7 +119,7 @@ test('submits Microsoft MSRC reports after CNAME and Microsoft IP RDAP ownership
 	assert.equal(result.referenceId, 'msrc-1');
 	const msrcCall = calls.find((call) => call.url === 'https://api.msrc.microsoft.com/report/v3.0/Abuse/report');
 	assert.ok(msrcCall);
-	const body = JSON.parse(msrcCall.init.body);
+	const body = JSON.parse(String(msrcCall.init.body));
 	assert.equal(body.incidentType, 'Phishing');
 	assert.equal(body.destinationIp, '20.50.0.1');
 	assert.equal(body.destinationUrl, 'https://login.bad.example/path');
@@ -135,18 +140,60 @@ test('skips Microsoft MSRC reports when resolved IPs are not Microsoft-owned', a
 	const result = await reportToMicrosoftMsrc(makeEnv(), makeReport());
 
 	assert.equal(result.status, 'skipped');
-	assert.match(result.eligibilityReason, /not owned by Microsoft/);
+	assert.match(result.eligibilityReason ?? '', /not owned by Microsoft/);
 	assert.equal(calls.some((call) => call.url === 'https://api.msrc.microsoft.com/report/v3.0/Abuse/report'), false);
 });
 
+test('skips Microsoft MSRC reports when RDAP only mentions Microsoft outside ownership fields', async () => {
+	mockFetch((url) => {
+		const requestUrl = new URL(url);
+		if (requestUrl.hostname === 'cloudflare-dns.com' && requestUrl.searchParams.get('type') === 'A') {
+			return jsonResponse({ Status: 0, Answer: [{ type: 1, data: '203.0.113.10' }] });
+		}
+		if (requestUrl.hostname === 'cloudflare-dns.com') return jsonResponse({ Status: 0 });
+		if (url === 'https://rdap.org/ip/203.0.113.10') {
+			// "azure" appears only in a remark, not in any ownership field.
+			return jsonResponse({ name: 'EXAMPLE-NET', remarks: [{ description: ['Customer migrated from azure hosting'] }] });
+		}
+		throw new Error(`unexpected fetch ${url}`);
+	});
+
+	const result = await reportToMicrosoftMsrc(makeEnv(), makeReport());
+
+	assert.equal(result.status, 'skipped');
+});
+
+test('detects Microsoft ownership from RDAP entity vCards', async () => {
+	const calls = mockFetch((url) => {
+		const requestUrl = new URL(url);
+		if (requestUrl.hostname === 'cloudflare-dns.com' && requestUrl.searchParams.get('type') === 'A') {
+			return jsonResponse({ Status: 0, Answer: [{ type: 1, data: '20.50.0.1' }] });
+		}
+		if (requestUrl.hostname === 'cloudflare-dns.com') return jsonResponse({ Status: 0 });
+		if (url === 'https://rdap.org/ip/20.50.0.1') {
+			return jsonResponse({
+				name: 'NETBLK-1',
+				entities: [{ handle: 'MSFT', vcardArray: ['vcard', [['fn', {}, 'text', 'Microsoft Corporation']]] }],
+			});
+		}
+		if (url === 'https://api.msrc.microsoft.com/report/v3.0/Abuse/report') return jsonResponse({ id: 'msrc-2' });
+		throw new Error(`unexpected fetch ${url}`);
+	});
+
+	const result = await reportToMicrosoftMsrc(makeEnv(), makeReport());
+
+	assert.equal(result.status, 'submitted');
+	assert.ok(calls.some((call) => call.url === 'https://api.msrc.microsoft.com/report/v3.0/Abuse/report'));
+});
+
 test('capProviderResult passes small responses through unchanged', () => {
-	const result = { provider: 'netcraft', status: 'submitted', referenceId: 'abc', responseJson: { ok: true, note: 'small' } };
+	const result: ProviderReportResult = { provider: 'netcraft', status: 'submitted', referenceId: 'abc', responseJson: { ok: true, note: 'small' } };
 	assert.deepEqual(capProviderResult(result), result);
 });
 
 test('capProviderResult truncates oversized response payloads while preserving status fields', () => {
 	const big = 'x'.repeat(20_000);
-	const result = {
+	const result: ProviderReportResult = {
 		provider: 'cloudflare_abuse',
 		status: 'submitted',
 		referenceId: 'ref-1',
@@ -155,23 +202,24 @@ test('capProviderResult truncates oversized response payloads while preserving s
 	};
 
 	const capped = capProviderResult(result);
+	const responseJson = capped.responseJson as { truncated: boolean; original_chars: number; preview: string };
 
 	assert.equal(capped.provider, 'cloudflare_abuse');
 	assert.equal(capped.status, 'submitted');
 	assert.equal(capped.referenceId, 'ref-1');
 	assert.equal(capped.eligibilityReason, 'Cloudflare nameserver found');
-	assert.equal(capped.responseJson.truncated, true);
-	assert.ok(capped.responseJson.original_chars > 12_000);
-	assert.ok(capped.responseJson.preview.length <= 12_000);
-	assert.equal(result.responseJson.rdap, big, 'original result must not be mutated');
+	assert.equal(responseJson.truncated, true);
+	assert.ok(responseJson.original_chars > 12_000);
+	assert.ok(responseJson.preview.length <= 12_000);
+	assert.deepEqual(result.responseJson, { rdap: big }, 'original result must not be mutated');
 });
 
 test('capProviderResult leaves results without a response payload untouched', () => {
-	const result = { provider: 'microsoft_msrc', status: 'skipped', eligibilityReason: 'No A or AAAA records resolved.' };
+	const result: ProviderReportResult = { provider: 'microsoft_msrc', status: 'skipped', eligibilityReason: 'No A or AAAA records resolved.' };
 	assert.deepEqual(capProviderResult(result), result);
 });
 
-function makeEnv(overrides = {}) {
+function makeEnv(overrides: Partial<ProviderReportingEnv> = {}): ProviderReportingEnv {
 	return {
 		CLOUDFLARE_ACCOUNT_ID: 'account-1',
 		CLOUDFLARE_API_TOKEN: 'token-1',
@@ -184,7 +232,7 @@ function makeEnv(overrides = {}) {
 	};
 }
 
-function makeReport(overrides = {}) {
+function makeReport(overrides: Partial<PhishingHostnameWorkflowParams> = {}): PhishingHostnameWorkflowParams {
 	return {
 		reportId: 'report-1',
 		name: 'Alice Reporter',
@@ -200,17 +248,17 @@ function makeReport(overrides = {}) {
 	};
 }
 
-function mockFetch(handler) {
-	const calls = [];
-	globalThis.fetch = async (url, init = {}) => {
-		const call = { url: String(url), init };
+function mockFetch(handler: (url: string, init: RequestInit, index: number) => Response | Promise<Response>): FetchCall[] {
+	const calls: FetchCall[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const call: FetchCall = { url: String(input), init: init ?? {} };
 		calls.push(call);
-		return handler(call.url, init, calls.length - 1);
-	};
+		return handler(call.url, call.init, calls.length - 1);
+	}) as typeof fetch;
 	return calls;
 }
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
 		status,
 		headers: { 'Content-Type': 'application/json' },

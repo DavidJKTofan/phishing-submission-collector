@@ -7,12 +7,15 @@ import {
 	addHostnameToCloudflareOneList,
 	formatDiscordActor,
 	handleDiscordInteraction,
+	isApprovalEventPayload,
 	sendDiscordApprovalMessage,
 } from './approval';
 import type { ApprovalEventPayload, ApprovalStatus, CloudflareListStatus, PhishingHostnameWorkflowParams } from './approval';
 import { HostnameNormalizationError, buildScanUrl, normalizeReportedHostname } from './hostname';
 import { capProviderResult, reportToCloudflareAbuse, reportToMicrosoftMsrc, reportToNetcraft, serializeProviderResponse } from './provider-reporting';
 import type { ProviderName, ProviderReportResult } from './provider-reporting';
+import { lookupAbuseContacts } from './abuse-contacts';
+import type { AbuseContacts } from './abuse-contacts';
 import {
 	HttpError,
 	MAX_BODY_BYTES,
@@ -88,6 +91,7 @@ type SubmissionResult = {
 	virustotal_scan_id?: string;
 	ipqs_scan?: unknown;
 	cloudflare_scan_uuid?: string;
+	abuse_contacts?: AbuseContacts;
 };
 
 type ApiResultKey = 'urlscan_uuid' | 'virustotal_scan_id' | 'ipqs_scan' | 'cloudflare_scan_uuid';
@@ -111,6 +115,15 @@ type TurnstileValidation = {
 	action?: string;
 };
 
+// step.do()'s return type must satisfy `T extends Rpc.Serializable<T>`. Checking
+// that constraint against ProviderReportResult's recursive `JsonValue` field
+// triggers TS2589 ("Type instantiation is excessively deep"), so widen
+// responseJson to a non-recursive shape for the step boundary only: every
+// JsonValue is structurally an object, string, number, boolean, or null.
+type StepSafeProviderReportResult = Omit<ProviderReportResult, 'responseJson'> & {
+	responseJson?: object | string | number | boolean | null;
+};
+
 export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHostnameWorkflowParams> {
 	async run(event: WorkflowEvent<PhishingHostnameWorkflowParams>, step: WorkflowStep): Promise<unknown> {
 		const report = event.payload;
@@ -119,16 +132,23 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 			await step.do(
 				'send Discord approval request',
 				{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: DISCORD_APPROVAL_SEND_TIMEOUT },
-				async () => nonRetryableOnConfigError(() => sendDiscordApprovalMessage(this.env, report, event.instanceId))
+				// WorkflowStepContext.attempt makes retries idempotent: only a retry
+				// (where the message may already have been posted but the response
+				// was lost) pays for the duplicate check. The parameter is optional
+				// so the callback stays compatible with runtimes/types that predate
+				// the step context.
+				async (stepContext?: { attempt?: number }) =>
+					nonRetryableOnConfigError(() => sendDiscordApprovalMessage(this.env, report, event.instanceId, (stepContext?.attempt ?? 1) > 1))
 			);
 		} catch (error) {
 			const message = errorMessage(error);
 			await step.do('record Discord approval request failure', async () => {
-				await updateApprovalDecision(this.env.DB, report.reportId, {
-					approvalStatus: 'workflow_failed',
-					cloudflareListStatus: 'not_started',
-					error: message,
-				});
+				await updateApprovalDecision(
+					this.env.DB,
+					report.reportId,
+					{ approvalStatus: 'workflow_failed', cloudflareListStatus: 'not_started', error: message },
+					1
+				);
 			});
 			return { status: 'workflow_failed', reportId: report.reportId, error: message };
 		}
@@ -140,25 +160,49 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 				timeout: APPROVAL_TIMEOUT,
 			});
 		} catch (error) {
-			await step.do('mark approval expired', async () => {
-				await updateApprovalDecision(this.env.DB, report.reportId, {
-					approvalStatus: 'expired',
-					cloudflareListStatus: 'not_started',
-					error: errorMessage(error),
-				});
+			// Per the Workflows docs, waitForEvent throws when its timeout elapses;
+			// catching it lets the Workflow continue. Distinguish that documented
+			// timeout from other runtime failures so an infrastructure error is not
+			// silently recorded as a 7-day "expired".
+			const message = errorMessage(error);
+			const timedOut = isWaitForEventTimeout(error);
+			const waitStatus: ApprovalStatus = timedOut ? 'expired' : 'workflow_failed';
+			await step.do(timedOut ? 'mark approval expired' : 'record approval wait failure', async () => {
+				await updateApprovalDecision(
+					this.env.DB,
+					report.reportId,
+					{ approvalStatus: waitStatus, cloudflareListStatus: 'not_started', error: timedOut ? undefined : message },
+					1
+				);
 			});
-			return { status: 'expired', reportId: report.reportId };
+			return timedOut ? { status: waitStatus, reportId: report.reportId } : { status: waitStatus, reportId: report.reportId, error: message };
 		}
 
-		const approval = approvalEvent.payload as ApprovalEventPayload;
+		// Workflows does not validate event payloads against the type parameter
+		// (Workflows "Events and parameters" docs), so validate before acting.
+		const approval = approvalEvent.payload;
+		if (!isApprovalEventPayload(approval)) {
+			const message = 'Malformed approval event payload';
+			await step.do('record malformed approval event', async () => {
+				await updateApprovalDecision(
+					this.env.DB,
+					report.reportId,
+					{ approvalStatus: 'workflow_failed', cloudflareListStatus: 'not_started', error: message },
+					1
+				);
+			});
+			return { status: 'workflow_failed', reportId: report.reportId, error: message };
+		}
+
 		const approvalStatus: ApprovalStatus = approval.approved ? 'approved' : 'denied';
 
 		await step.do('record approval decision', async () => {
-			await updateApprovalDecision(this.env.DB, report.reportId, {
-				approvalStatus,
-				actor: formatDiscordActor(approval),
-				cloudflareListStatus: 'not_started',
-			});
+			await updateApprovalDecision(
+				this.env.DB,
+				report.reportId,
+				{ approvalStatus, actor: formatDiscordActor(approval), cloudflareListStatus: 'not_started' },
+				1
+			);
 		});
 
 		if (!approval.approved) {
@@ -198,12 +242,18 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 		const providerReports: ProviderReportResult[] = [];
 		for (const providerStep of providerSteps) {
 			try {
-				const resultJson = await step.do(
+				const stepResult: unknown = await step.do(
 					providerStep.name,
 					{ retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' }, timeout: PROVIDER_REPORT_TIMEOUT },
-					async () => JSON.stringify(capProviderResult(await nonRetryableOnConfigError(() => providerStep.run())))
+					async (): Promise<StepSafeProviderReportResult> => capProviderResult(await nonRetryableOnConfigError(() => providerStep.run()))
 				);
-				providerReports.push(parseSingleProviderResult(resultJson, providerStep.provider));
+				// Step return values are persisted and replayed by the runtime, so
+				// validate the replayed shape instead of trusting it.
+				providerReports.push(
+					isProviderReportResult(stepResult)
+						? stepResult
+						: { provider: providerStep.provider, status: 'failed', error: 'Malformed provider result' }
+				);
 			} catch (error) {
 				const message = errorMessage(error);
 				console.error(JSON.stringify({ event: 'provider_reporting_step_failed', reportId: report.reportId, provider: providerStep.provider, error: message }));
@@ -241,6 +291,15 @@ async function nonRetryableOnConfigError<T>(action: () => Promise<T>): Promise<T
 	}
 }
 
+// The runtime does not expose a dedicated error class for waitForEvent
+// timeouts, so classify by name/message and treat everything else as a
+// workflow failure rather than a silent "expired".
+function isWaitForEventTimeout(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const text = `${error.name} ${error.message}`.toLowerCase();
+	return text.includes('timeout') || text.includes('timed out') || text.includes('expired');
+}
+
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
@@ -272,7 +331,7 @@ export default {
 					return jsonResponse({ error: 'Invalid security verification', code: 'INVALID_TURNSTILE' }, 400, cors.headers);
 				}
 
-				const result = await handleSubmission(formData, env);
+				const result = await handleSubmission(formData, env, ctx);
 				return jsonResponse(result, 200, cors.headers);
 			} catch (error) {
 				return handleErrorResponse(error, cors.headers);
@@ -393,62 +452,85 @@ async function validateTurnstile(token: string, ip: string | null, env: Env): Pr
 		return { success: false, error: 'Expected hostname configuration missing' };
 	}
 
-	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), SITEVERIFY_TIMEOUT_MS);
+	// One idempotency_key shared across attempts lets a retried request after a
+	// transient failure revalidate the single-use token (Turnstile server-side
+	// validation docs: idempotency keys for retry operation).
+	const idempotencyKey = crypto.randomUUID();
+	let attempt = await requestSiteverify(env.TURNSTILE_SECRET_KEY, token, ip, idempotencyKey);
+	if (!attempt.outcome && attempt.retryable) {
+		attempt = await requestSiteverify(env.TURNSTILE_SECRET_KEY, token, ip, idempotencyKey);
+	}
+	if (!attempt.outcome) return { success: false, error: attempt.error };
 
+	const outcome = attempt.outcome;
+
+	if (outcome.success && outcome.action !== TURNSTILE_ACTION) {
+		console.error('Turnstile action mismatch:', { got: outcome.action, expected: TURNSTILE_ACTION });
+		return { success: false, error: 'action mismatch' };
+	}
+
+	if (outcome.success && (!outcome.hostname || !expectedHostnames.includes(outcome.hostname))) {
+		console.error('Turnstile hostname mismatch:', { got: outcome.hostname, expected: expectedHostnames });
+		return { success: false, error: 'hostname mismatch' };
+	}
+
+	console.log(
+		JSON.stringify({
+			event: 'turnstile_verified',
+			success: outcome.success,
+			timestamp: new Date().toISOString(),
+			errorCodes: outcome['error-codes'] || [],
+		})
+	);
+
+	return {
+		success: outcome.success,
+		errorCodes: outcome['error-codes'] || [],
+		timestamp: outcome.challenge_ts,
+		hostname: outcome.hostname,
+		action: outcome.action,
+	};
+}
+
+type SiteverifyAttempt = { outcome: TurnstileSiteverifyResponse; error?: undefined } | { outcome?: undefined; error: string; retryable: boolean };
+
+async function requestSiteverify(secretKey: string, token: string, ip: string | null, idempotencyKey: string): Promise<SiteverifyAttempt> {
 	try {
 		const turnstileFormData = new FormData();
-		turnstileFormData.append('secret', env.TURNSTILE_SECRET_KEY);
+		turnstileFormData.append('secret', secretKey);
 		turnstileFormData.append('response', token);
 		if (ip) turnstileFormData.append('remoteip', ip);
-		turnstileFormData.append('idempotency_key', crypto.randomUUID());
+		turnstileFormData.append('idempotency_key', idempotencyKey);
 
-		const turnstileResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+		const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
 			method: 'POST',
 			body: turnstileFormData,
-			signal: controller.signal,
+			signal: AbortSignal.timeout(SITEVERIFY_TIMEOUT_MS),
 		});
 
-		if (!turnstileResponse.ok) {
-			console.error('Turnstile siteverify HTTP error:', turnstileResponse.status);
-			return { success: false, error: `siteverify HTTP ${turnstileResponse.status}` };
+		if (!response.ok) {
+			console.error('Turnstile siteverify HTTP error:', response.status);
+			return { error: `siteverify HTTP ${response.status}`, retryable: response.status >= 500 };
 		}
 
-		const outcome = (await turnstileResponse.json()) as TurnstileSiteverifyResponse;
-
-		if (outcome.success && outcome.action !== TURNSTILE_ACTION) {
-			console.error('Turnstile action mismatch:', { got: outcome.action, expected: TURNSTILE_ACTION });
-			return { success: false, error: 'action mismatch' };
+		const outcome: unknown = await response.json();
+		if (!isTurnstileSiteverifyResponse(outcome)) {
+			console.error('Turnstile siteverify returned a malformed response');
+			return { error: 'Malformed siteverify response', retryable: false };
 		}
-
-		if (outcome.success && (!outcome.hostname || !expectedHostnames.includes(outcome.hostname))) {
-			console.error('Turnstile hostname mismatch:', { got: outcome.hostname, expected: expectedHostnames });
-			return { success: false, error: 'hostname mismatch' };
-		}
-
-		console.log(
-			JSON.stringify({
-				event: 'turnstile_verified',
-				success: outcome.success,
-				timestamp: new Date().toISOString(),
-				errorCodes: outcome['error-codes'] || [],
-			})
-		);
-
-		return {
-			success: outcome.success,
-			errorCodes: outcome['error-codes'] || [],
-			timestamp: outcome.challenge_ts,
-			hostname: outcome.hostname,
-			action: outcome.action,
-		};
+		return { outcome };
 	} catch (error) {
-		const reason = error instanceof Error && error.name === 'AbortError' ? `timeout after ${SITEVERIFY_TIMEOUT_MS}ms` : errorMessage(error);
+		const reason = isTimeoutOrAbortError(error) ? `timeout after ${SITEVERIFY_TIMEOUT_MS}ms` : errorMessage(error);
 		console.error('Turnstile verification error:', reason);
-		return { success: false, error: reason };
-	} finally {
-		clearTimeout(timeoutId);
+		return { error: reason, retryable: true };
 	}
+}
+
+function isTurnstileSiteverifyResponse(value: unknown): value is TurnstileSiteverifyResponse {
+	if (!isRecord(value) || typeof value.success !== 'boolean') return false;
+	const errorCodes = value['error-codes'];
+	if (errorCodes !== undefined && (!Array.isArray(errorCodes) || !errorCodes.every((code) => typeof code === 'string'))) return false;
+	return ['challenge_ts', 'hostname', 'action', 'cdata'].every((key) => value[key] === undefined || typeof value[key] === 'string');
 }
 
 function redactTurnstileFailure(result: TurnstileValidation): TurnstileValidation {
@@ -462,7 +544,7 @@ function redactTurnstileFailure(result: TurnstileValidation): TurnstileValidatio
 	};
 }
 
-async function handleSubmission(formData: SubmissionData, env: Env): Promise<SubmissionResult> {
+async function handleSubmission(formData: SubmissionData, env: Env, ctx: ExecutionContext): Promise<SubmissionResult> {
 	const id = crypto.randomUUID();
 	const requestId = crypto.randomUUID();
 
@@ -498,6 +580,14 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 		{ name: 'Cloudflare', skip: formData.skip_cloudflare, call: callCloudflareAPI, resultKey: 'cloudflare_scan_uuid' },
 	];
 
+	// Best-effort registrar/host abuse-contact discovery for the result-page
+	// call-to-action. Kicked off concurrently with the scanner calls and never
+	// allowed to block or fail the submission response.
+	const abuseContactsPromise = lookupAbuseContacts(formData.normalizedHostname).catch((error) => {
+		console.error(JSON.stringify({ event: 'abuse_contacts_lookup_failed', reportId: id, error: errorMessage(error) }));
+		return {} as AbuseContacts;
+	});
+
 	const apiResults = await Promise.all(
 		apiCalls
 			.filter((api) => !api.skip)
@@ -526,6 +616,11 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 		}
 	}
 
+	const abuseContacts = await abuseContactsPromise;
+	if (abuseContacts.registrar || abuseContacts.host) {
+		result.abuse_contacts = abuseContacts;
+	}
+
 	await saveReportToDB(env.DB, id, formData, result);
 
 	try {
@@ -549,7 +644,14 @@ async function handleSubmission(formData: SubmissionData, env: Env): Promise<Sub
 			},
 		});
 		result.workflow_instance_id = instance.id;
-		await updateWorkflowInstanceId(env.DB, id, instance.id);
+		// Non-critical bookkeeping write: defer it past the response instead of
+		// adding a D1 round trip to /submit latency (Workers best practices:
+		// use waitUntil for work after the response).
+		ctx.waitUntil(
+			updateWorkflowInstanceId(env.DB, id, instance.id).catch((error) =>
+				console.error(JSON.stringify({ event: 'workflow_instance_id_save_failed', reportId: id, error: errorMessage(error) }))
+			)
+		);
 	} catch (error) {
 		const message = errorMessage(error);
 		result.approval_status = 'workflow_failed';
@@ -646,16 +748,18 @@ function validateFormData(data: unknown): SubmissionData {
 }
 
 async function callApiWithTimeout<T>(apiCall: (signal: AbortSignal) => Promise<T>, timeoutMs: number): Promise<T> {
-	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 	try {
-		return await apiCall(controller.signal);
+		return await apiCall(AbortSignal.timeout(timeoutMs));
 	} catch (error) {
-		if (error instanceof Error && error.name === 'AbortError') throw new Error(`API timeout after ${timeoutMs}ms`);
+		if (isTimeoutOrAbortError(error)) throw new Error(`API timeout after ${timeoutMs}ms`);
 		throw error;
-	} finally {
-		clearTimeout(timeoutId);
 	}
+}
+
+// AbortSignal.timeout rejects with a DOMException named TimeoutError;
+// AbortError is kept for signals aborted through other paths.
+function isTimeoutOrAbortError(error: unknown): boolean {
+	return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
 async function callUrlScanAPI(submittedUrl: string, env: Env, signal: AbortSignal): Promise<ApiResponseData> {
@@ -791,6 +895,9 @@ async function updateWorkflowInstanceId(db: D1Database, reportId: string, workfl
 	);
 }
 
+// maxAttempts: callers inside Workflow steps pass 1 because step.do already
+// retries the whole step; layering the in-function retry on top would
+// multiply attempts. The fetch handler keeps the default.
 async function updateApprovalDecision(
 	db: D1Database,
 	reportId: string,
@@ -799,57 +906,61 @@ async function updateApprovalDecision(
 		actor?: string;
 		cloudflareListStatus?: CloudflareListStatus;
 		error?: string;
-	}
+	},
+	maxAttempts = 3
 ): Promise<void> {
-	await runD1WriteWithRetry(() =>
-		db
-			.prepare(
-				`UPDATE reports_v2
-				 SET approval_status = ?,
-				     approval_actor = COALESCE(?, approval_actor),
-				     approval_decided_at = CASE WHEN ? IN ('approved', 'denied', 'expired') THEN CURRENT_TIMESTAMP ELSE approval_decided_at END,
-				     cloudflare_list_status = COALESCE(?, cloudflare_list_status),
-				     cloudflare_list_error = ?,
-				     last_updated = CURRENT_TIMESTAMP
-				 WHERE id = ?`
-			)
-			.bind(
-				decision.approvalStatus,
-				decision.actor || null,
-				decision.approvalStatus,
-				decision.cloudflareListStatus || null,
-				decision.error || null,
-				reportId
-			)
-			.run()
+	await runD1WriteWithRetry(
+		() =>
+			db
+				.prepare(
+					`UPDATE reports_v2
+					 SET approval_status = ?,
+					     approval_actor = COALESCE(?, approval_actor),
+					     approval_decided_at = CASE WHEN ? IN ('approved', 'denied', 'expired') THEN CURRENT_TIMESTAMP ELSE approval_decided_at END,
+					     cloudflare_list_status = COALESCE(?, cloudflare_list_status),
+					     approval_error = ?,
+					     last_updated = CURRENT_TIMESTAMP
+					 WHERE id = ?`
+				)
+				.bind(
+					decision.approvalStatus,
+					decision.actor || null,
+					decision.approvalStatus,
+					decision.cloudflareListStatus || null,
+					decision.error || null,
+					reportId
+				)
+				.run(),
+		maxAttempts
 	);
 }
 
+// Only called inside Workflow steps, which retry the whole step: a single
+// attempt avoids multiplying retries.
 async function updateCloudflareListResult(
 	db: D1Database,
 	reportId: string,
 	status: CloudflareListStatus,
 	error: string | null = null
 ): Promise<void> {
-	await runD1WriteWithRetry(() =>
-		db
-			.prepare(
-				`UPDATE reports_v2
-				 SET cloudflare_list_status = ?,
-				     cloudflare_list_error = ?,
-				     last_updated = CURRENT_TIMESTAMP
-				 WHERE id = ?`
-			)
-			.bind(status, error, reportId)
-			.run()
-	);
+	await db
+		.prepare(
+			`UPDATE reports_v2
+			 SET cloudflare_list_status = ?,
+			     cloudflare_list_error = ?,
+			     last_updated = CURRENT_TIMESTAMP
+			 WHERE id = ?`
+		)
+		.bind(status, error, reportId)
+		.run();
 }
 
 async function saveProviderReportResults(db: D1Database, reportId: string, results: ProviderReportResult[]): Promise<void> {
 	if (results.length === 0) return;
 
 	// Batch all upserts into a single atomic round trip rather than one network
-	// call per provider (D1 best practices: prefer db.batch over sequential writes).
+	// call per provider (D1 best practices: prefer db.batch over sequential
+	// writes). No in-function retry: the enclosing Workflow step retries.
 	const statements = results.map((result) =>
 		db
 			.prepare(
@@ -878,7 +989,7 @@ async function saveProviderReportResults(db: D1Database, reportId: string, resul
 			)
 	);
 
-	await runD1WriteWithRetry(() => db.batch(statements));
+	await db.batch(statements);
 }
 
 async function runD1WriteWithRetry<T>(operation: () => Promise<T>, maxAttempts = 3): Promise<T> {
@@ -918,7 +1029,10 @@ function delay(ms: number): Promise<void> {
 // Public projection for the unauthenticated GET /api/report/:id endpoint.
 // Deliberately excludes internal/operational fields that should not be exposed
 // by UUID: approval_actor (Discord moderator identity), workflow_instance_id,
-// and cloudflare_list_error (raw internal error text).
+// approval_error, and cloudflare_list_error (raw internal error text).
+// NOTE: every column here must exist in reports_v2 (see migrations/). Abuse
+// contacts are computed at submission time and intentionally NOT persisted, so
+// they are not part of this read projection.
 const REPORT_COLUMNS =
 	'id, name, category, source, url, description, urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid, api_errors, submission_success, timestamp, normalized_hostname, approval_status, approval_decided_at, cloudflare_list_status';
 
@@ -973,16 +1087,6 @@ function isAllowedCategory(value: string): value is Category {
 
 function isAllowedSource(value: string): value is Source {
 	return (ALLOWED_SOURCES as readonly string[]).includes(value);
-}
-
-function parseSingleProviderResult(value: string, provider: ProviderName): ProviderReportResult {
-	try {
-		const parsed = JSON.parse(value) as unknown;
-		if (isProviderReportResult(parsed)) return parsed;
-	} catch {
-		// fall through to a failed result below
-	}
-	return { provider, status: 'failed', error: 'Malformed provider result' };
 }
 
 function isProviderReportResult(value: unknown): value is ProviderReportResult {

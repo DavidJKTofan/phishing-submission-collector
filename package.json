@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "cf-typegen": "wrangler types --config wrangler.jsonc",
-    "check": "npm run typecheck && node --check public/assets/scripts.js && node --check public/assets/report.js && node --check public/assets/theme.js",
-    "test": "tsc -p tsconfig.test.json && node --test tests/*.test.mjs",
+    "check": "npm run typecheck && tsc -p tests/tsconfig.json --noEmit && node --check public/assets/scripts.js && node --check public/assets/report.js && node --check public/assets/theme.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "deploy": "wrangler deploy --config wrangler.jsonc",
     "deploy:staging": "wrangler deploy --config wrangler.jsonc --env staging",
     "deploy:dry-run": "wrangler deploy --dry-run --config wrangler.jsonc",
@@ -16,7 +17,10 @@
     "typecheck": "npm run cf-typegen && tsc --noEmit"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.15",
+    "@types/node": "^22.0.0",
     "typescript": "^5.9.3",
-    "wrangler": "^4.90.0"
+    "vitest": "~4.1.0",
+    "wrangler": "^4.100.0"
   }
 }

@@ -1,0 +1,10 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		// Index access in test assertions is pervasive; the strict-null check on
+		// every calls[n] would add noise without catching real defects here.
+		"noUncheckedIndexedAccess": false,
+		"types": ["../worker-configuration.d.ts", "@types/node", "@cloudflare/vitest-pool-workers/types"]
+	},
+	"include": ["./**/*.ts", "../src/**/*.ts", "../worker-configuration.d.ts"]
+}

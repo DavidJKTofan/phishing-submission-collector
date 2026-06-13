@@ -1,19 +1,26 @@
 import assert from 'node:assert/strict';
-import test, { afterEach, before } from 'node:test';
+import { Buffer } from 'node:buffer';
+import { afterEach, beforeAll, it as test } from 'vitest';
 
-import {
-	addHostnameToCloudflareOneList,
-	handleDiscordInteraction,
-	sendDiscordApprovalMessage,
-} from '/private/tmp/phishing-submission-collector-tests/src/approval.js';
+import { addHostnameToCloudflareOneList, handleDiscordInteraction, sendDiscordApprovalMessage } from '../src/approval';
+import type { ApprovalEventPayload, PhishingHostnameWorkflowParams } from '../src/approval';
+
+type TestEnv = Parameters<typeof handleDiscordInteraction>[1];
+type ApprovalEvent = { type: string; payload: ApprovalEventPayload };
+type TestWorkflowInstance = {
+	events: ApprovalEvent[];
+	status: () => Promise<{ status?: string }>;
+	sendEvent: (event: ApprovalEvent) => Promise<unknown>;
+};
+type FetchCall = { url: string; init: RequestInit };
 
 const originalFetch = globalThis.fetch;
-let keyPair;
-let publicKeyHex;
+let keyPair: CryptoKeyPair;
+let publicKeyHex: string;
 
-before(async () => {
-	keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-	const publicKey = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+beforeAll(async () => {
+	keyPair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair;
+	const publicKey = (await crypto.subtle.exportKey('raw', keyPair.publicKey)) as ArrayBuffer;
 	publicKeyHex = toHex(publicKey);
 });
 
@@ -26,7 +33,14 @@ test('answers Discord PING interactions', async () => {
 	const response = await handleDiscordInteraction(await signedDiscordRequest({ type: 1 }), env);
 
 	assert.equal(response.status, 200);
-	assert.deepEqual(await response.json(), { type: 1 });
+	assert.deepEqual(await readJson(response), { type: 1 });
+});
+
+test('rejects malformed Discord interaction payloads', async () => {
+	const env = makeDiscordEnv(makeWorkflowInstance('waiting'));
+	const response = await handleDiscordInteraction(await signedDiscordRequest({ type: 'not-a-number' }), env);
+
+	assert.equal(response.status, 400);
 });
 
 test('sends approval event for Discord approve button', async () => {
@@ -43,7 +57,7 @@ test('sends approval event for Discord approve button', async () => {
 		env
 	);
 
-	const body = await response.json();
+	const body = await readJson(response);
 	assert.equal(response.status, 200);
 	assert.equal(body.type, 7);
 	assert.equal(body.data.flags, 4);
@@ -75,7 +89,7 @@ test('sends denial event for Discord deny button', async () => {
 		env
 	);
 
-	const body = await response.json();
+	const body = await readJson(response);
 	assert.equal(response.status, 200);
 	assert.equal(body.type, 7);
 	assert.equal(body.data.flags, 4);
@@ -87,7 +101,7 @@ test('sends denial event for Discord deny button', async () => {
 test('defers Discord button clicks when execution context is available', async () => {
 	const instance = makeWorkflowInstance('waiting');
 	const env = makeDiscordEnv(instance);
-	const waitUntilPromises = [];
+	const waitUntilPromises: Promise<unknown>[] = [];
 	const calls = mockFetch(() => jsonResponse({}));
 	const response = await handleDiscordInteraction(
 		await signedDiscordRequest({
@@ -104,35 +118,24 @@ test('defers Discord button clicks when execution context is available', async (
 	);
 
 	assert.equal(response.status, 200);
-	assert.deepEqual(await response.json(), { type: 6 });
+	assert.deepEqual(await readJson(response), { type: 6 });
 	assert.equal(waitUntilPromises.length, 1);
 	await Promise.all(waitUntilPromises);
 	assert.equal(instance.events.length, 1);
 	assert.equal(instance.events[0].payload.approved, true);
 	assert.equal(calls[0].url, 'https://discord.com/api/v10/webhooks/app-1/interaction-token/messages/@original');
 	assert.equal(calls[0].init.method, 'PATCH');
-	const updateBody = JSON.parse(calls[0].init.body);
+	const updateBody = JSON.parse(String(calls[0].init.body));
 	assert.equal(updateBody.flags, 4);
 	assert.match(updateBody.content, /Decision:\*\* Approved/);
 });
 
 test('sends formatted Discord approval messages with scanner report links', async () => {
 	const calls = mockFetch(() => jsonResponse({ id: 'discord-message-1' }));
-	const report = {
-		reportId: '60e1a458-4ad0-44c4-a4be-d211bb321d7a',
-		name: 'Ali Anza portal',
-		category: 'Phishing',
-		source: 'Website',
-		submittedUrl: 'https://portalalianza.azurewebsites.net/',
-		normalizedHostname: 'portalalianza.azurewebsites.net',
-		description: 'Impersonating a financial institution.',
-		urlscanUuid: '019cf7ef-8a8c-7618-a8c1-cd3b11390427',
-		virustotalScanId: 'aHR0cHM6Ly9wb3J0YWxhbGlhbnphLmF6dXJld2Vic2l0ZXMubmV0Lw',
-		cloudflareScanUuid: '095be615-a8ad-4c33-8e9c-c7612fbf6c9f',
-	};
+	const report = makeReport();
 
 	const result = await sendDiscordApprovalMessage(makeDiscordEnv(makeWorkflowInstance('waiting')), report, 'workflow-1');
-	const body = JSON.parse(calls[0].init.body);
+	const body = JSON.parse(String(calls[0].init.body));
 
 	assert.deepEqual(result, { id: 'discord-message-1' });
 	assert.equal(calls[0].url, 'https://discord.com/api/v10/channels/channel-1/messages');
@@ -145,6 +148,35 @@ test('sends formatted Discord approval messages with scanner report links', asyn
 	assert.equal(body.flags, 4);
 	assert.deepEqual(body.allowed_mentions, { parse: [] });
 	assert.equal(body.components[0].components[0].custom_id, 'approve:workflow-1');
+});
+
+test('reuses an existing approval message when a retried send finds one', async () => {
+	const calls = mockFetch((url) => {
+		if (url.includes('/messages?limit=')) {
+			return jsonResponse([
+				{ id: 'existing-message-1', components: [{ type: 1, components: [{ type: 2, custom_id: 'approve:workflow-1' }] }] },
+			]);
+		}
+		throw new Error(`unexpected fetch ${url}`);
+	});
+
+	const result = await sendDiscordApprovalMessage(makeDiscordEnv(makeWorkflowInstance('waiting')), makeReport(), 'workflow-1', true);
+
+	assert.deepEqual(result, { id: 'existing-message-1' });
+	assert.equal(calls.length, 1);
+});
+
+test('posts normally when the retried-send duplicate check finds nothing', async () => {
+	const calls = mockFetch((url) => {
+		if (url.includes('/messages?limit=')) return jsonResponse([]);
+		return jsonResponse({ id: 'discord-message-2' });
+	});
+
+	const result = await sendDiscordApprovalMessage(makeDiscordEnv(makeWorkflowInstance('waiting')), makeReport(), 'workflow-1', true);
+
+	assert.deepEqual(result, { id: 'discord-message-2' });
+	assert.equal(calls.length, 2);
+	assert.equal(calls[1].init.method, 'POST');
 });
 
 test('rejects Discord interactions with invalid signatures', async () => {
@@ -176,7 +208,7 @@ test('returns an ephemeral response for unknown workflow instances', async () =>
 		env
 	);
 
-	const body = await response.json();
+	const body = await readJson(response);
 	assert.equal(response.status, 200);
 	assert.equal(body.type, 4);
 	assert.equal(body.data.flags, 64);
@@ -190,7 +222,7 @@ test('returns an ephemeral response for duplicate clicks', async () => {
 		env
 	);
 
-	const body = await response.json();
+	const body = await readJson(response);
 	assert.equal(response.status, 200);
 	assert.equal(body.type, 4);
 	assert.equal(body.data.flags, 64);
@@ -208,22 +240,18 @@ test('returns an ephemeral response when the approval event cannot be sent', asy
 		env
 	);
 
-	const body = await response.json();
+	const body = await readJson(response);
 	assert.equal(response.status, 200);
 	assert.equal(body.type, 4);
 	assert.equal(body.data.flags, 64);
 	assert.match(body.data.content, /could not be recorded/);
 });
 
-test('appends approved hostname to the Cloudflare One DOMAIN list', async () => {
+test('appends approved hostnames with a single write (no read-before-write)', async () => {
 	const calls = mockFetch((url, init, index) => {
 		if (index === 0) {
 			assert.equal(url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists?type=DOMAIN');
 			return jsonResponse({ success: true, result: [{ id: 'list-1', name: 'Custom_Hostname_List', type: 'DOMAIN' }] });
-		}
-		if (index === 1) {
-			assert.equal(url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists/list-1/items');
-			return jsonResponse({ success: true, result: [] });
 		}
 		return jsonResponse({ success: true, result: { id: 'list-1' } });
 	});
@@ -235,10 +263,10 @@ test('appends approved hostname to the Cloudflare One DOMAIN list', async () => 
 	);
 
 	assert.deepEqual(result, { status: 'added', error: null });
-	assert.equal(calls.length, 3);
-	assert.equal(calls[2].url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists/list-1');
-	assert.equal(calls[2].init.method, 'PATCH');
-	assert.deepEqual(JSON.parse(calls[2].init.body), {
+	assert.equal(calls.length, 2);
+	assert.equal(calls[1].url, 'https://api.cloudflare.com/client/v4/accounts/account-1/gateway/lists/list-1');
+	assert.equal(calls[1].init.method, 'PATCH');
+	assert.deepEqual(JSON.parse(String(calls[1].init.body)), {
 		append: [{ value: 'login.bad.example', description: 'Report report-1' }],
 	});
 });
@@ -264,10 +292,10 @@ test('fails when the Cloudflare Gateway hostname list name is not configured', a
 	);
 });
 
-test('skips duplicate hostnames without patching the list', async () => {
+test('maps duplicate-item append errors to skipped_duplicate', async () => {
 	const calls = mockFetch((url, init, index) => {
 		if (index === 0) return jsonResponse({ success: true, result: [{ id: 'list-1', name: '0_PHISHING_Hostnames', type: 'DOMAIN' }] });
-		return jsonResponse({ success: true, result: [{ value: 'login.bad.example' }] });
+		return jsonResponse({ success: false, errors: [{ message: 'duplicate value found in list' }] }, 400);
 	});
 
 	const result = await addHostnameToCloudflareOneList(makeCloudflareEnv(), 'report-1', 'login.bad.example');
@@ -279,14 +307,13 @@ test('skips duplicate hostnames without patching the list', async () => {
 test('surfaces Cloudflare API failures while appending', async () => {
 	mockFetch((url, init, index) => {
 		if (index === 0) return jsonResponse({ success: true, result: [{ id: 'list-1', name: '0_PHISHING_Hostnames', type: 'DOMAIN' }] });
-		if (index === 1) return jsonResponse({ success: true, result: [] });
 		return jsonResponse({ success: false, errors: [{ message: 'append failed' }] }, 500);
 	});
 
 	await assert.rejects(() => addHostnameToCloudflareOneList(makeCloudflareEnv(), 'report-1', 'login.bad.example'), /append failed/);
 });
 
-async function signedDiscordRequest(payload, overrides = {}) {
+async function signedDiscordRequest(payload: unknown, overrides: { signature?: string; timestamp?: string } = {}): Promise<Request> {
 	const body = JSON.stringify(payload);
 	const timestamp = overrides.timestamp || Math.floor(Date.now() / 1000).toString();
 	const data = new TextEncoder().encode(timestamp + body);
@@ -303,19 +330,39 @@ async function signedDiscordRequest(payload, overrides = {}) {
 	});
 }
 
-function makeDiscordEnv(instance, get = async () => instance) {
+function makeReport(): PhishingHostnameWorkflowParams {
+	return {
+		reportId: '60e1a458-4ad0-44c4-a4be-d211bb321d7a',
+		name: 'Ali Anza portal',
+		category: 'Phishing',
+		source: 'Website',
+		submittedUrl: 'https://portalalianza.azurewebsites.net/',
+		normalizedHostname: 'portalalianza.azurewebsites.net',
+		description: 'Impersonating a financial institution.',
+		urlscanUuid: '019cf7ef-8a8c-7618-a8c1-cd3b11390427',
+		virustotalScanId: 'aHR0cHM6Ly9wb3J0YWxhbGlhbnphLmF6dXJld2Vic2l0ZXMubmV0Lw',
+		cloudflareScanUuid: '095be615-a8ad-4c33-8e9c-c7612fbf6c9f',
+	};
+}
+
+function makeDiscordEnv(instance: TestWorkflowInstance | null, get?: (instanceId: string) => Promise<TestWorkflowInstance>): TestEnv {
 	return {
 		DISCORD_APPLICATION_PUBLIC_KEY: publicKeyHex,
 		CLOUDFLARE_ACCOUNT_ID: 'account-1',
 		CLOUDFLARE_API_TOKEN: 'token-1',
 		DISCORD_BOT_TOKEN: 'discord-token',
 		DISCORD_APPROVAL_CHANNEL_ID: 'channel-1',
-		PHISHING_HOSTNAME_WORKFLOW: { get },
+		PHISHING_HOSTNAME_WORKFLOW: {
+			get: get ?? (async () => {
+				if (!instance) throw new Error('not found');
+				return instance;
+			}),
+		},
 	};
 }
 
-function makeWorkflowInstance(status, sendEvent) {
-	const instance = {
+function makeWorkflowInstance(status: string, sendEvent?: (event: ApprovalEvent) => Promise<unknown>): TestWorkflowInstance {
+	const instance: TestWorkflowInstance = {
 		events: [],
 		status: async () => ({ status }),
 		sendEvent: async (event) => {
@@ -326,7 +373,7 @@ function makeWorkflowInstance(status, sendEvent) {
 	return instance;
 }
 
-function makeCloudflareEnv(overrides = {}) {
+function makeCloudflareEnv(overrides: Partial<TestEnv> = {}): TestEnv {
 	return {
 		CLOUDFLARE_ACCOUNT_ID: 'account-1',
 		CLOUDFLARE_API_TOKEN: 'token-1',
@@ -336,23 +383,28 @@ function makeCloudflareEnv(overrides = {}) {
 	};
 }
 
-function mockFetch(handler) {
-	const calls = [];
-	globalThis.fetch = async (url, init = {}) => {
-		const call = { url: String(url), init };
+function mockFetch(handler: (url: string, init: RequestInit, index: number) => Response | Promise<Response>): FetchCall[] {
+	const calls: FetchCall[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const call: FetchCall = { url: String(input), init: init ?? {} };
 		calls.push(call);
-		return handler(call.url, init, calls.length - 1);
-	};
+		return handler(call.url, call.init, calls.length - 1);
+	}) as typeof fetch;
 	return calls;
 }
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
 		status,
 		headers: { 'Content-Type': 'application/json' },
 	});
 }
 
-function toHex(buffer) {
+// Tests assert on dynamic JSON shapes; a typed helper keeps the assertions terse.
+async function readJson(response: Response): Promise<any> {
+	return (await response.json()) as any;
+}
+
+function toHex(buffer: ArrayBuffer): string {
 	return Buffer.from(buffer).toString('hex');
 }

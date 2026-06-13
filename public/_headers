@@ -28,3 +28,9 @@
 
 /report.html
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; upgrade-insecure-requests
+
+# Asset filenames are not content-hashed, so force revalidation on every load.
+# Combined with the ETag the runtime sets, this yields cheap 304s while
+# guaranteeing a new deploy's JS/CSS is picked up immediately (no stale cache).
+/assets/*
+  Cache-Control: public, max-age=0, must-revalidate

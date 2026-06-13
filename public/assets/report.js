@@ -52,10 +52,49 @@ document.addEventListener('DOMContentLoaded', function () {
 		const div = document.createElement('div');
 		div.className = 'report-item' + (opts && opts.fullWidth ? ' full-width' : '');
 		const strong = document.createElement('strong');
-		strong.textContent = label + ' ';
+		strong.textContent = label;
 		div.appendChild(strong);
 		div.appendChild(document.createTextNode(String(value ?? '')));
 		return div;
+	}
+
+	const APPROVAL_BADGES = {
+		approved: { label: 'Approved', cls: 'badge-success' },
+		denied: { label: 'Denied', cls: 'badge-danger' },
+		expired: { label: 'Expired (no decision)', cls: 'badge-neutral' },
+		pending: { label: 'Pending approval', cls: 'badge-pending' },
+		workflow_failed: { label: 'Workflow failed', cls: 'badge-danger' },
+	};
+
+	const LIST_BADGES = {
+		added: { label: 'Added to blocklist', cls: 'badge-success' },
+		skipped_duplicate: { label: 'Already on blocklist', cls: 'badge-neutral' },
+		failed: { label: 'Blocklist update failed', cls: 'badge-danger' },
+		not_started: { label: 'Not started', cls: 'badge-neutral' },
+	};
+
+	function makeBadge(prefix, text, cls) {
+		const badge = document.createElement('span');
+		badge.className = 'status-badge ' + cls;
+		const label = document.createElement('span');
+		label.className = 'status-badge-label';
+		label.textContent = prefix;
+		badge.appendChild(label);
+		badge.appendChild(document.createTextNode(text));
+		return badge;
+	}
+
+	function makeSectionHeading(text) {
+		const heading = document.createElement('h4');
+		heading.className = 'report-section-heading';
+		heading.textContent = text;
+		return heading;
+	}
+
+	function formatTimestamp(value) {
+		if (!value) return null;
+		const date = new Date(value);
+		return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 	}
 
 	function makeJsonSummary(value) {
@@ -107,36 +146,136 @@ document.addEventListener('DOMContentLoaded', function () {
 		resultContainer.style.display = 'block';
 
 		const heading = document.createElement('h3');
-		heading.textContent = `Report Details (ID: ${report.id || ''})`;
+		heading.className = 'report-heading';
+		heading.appendChild(document.createTextNode('Report '));
+		const idSpan = document.createElement('span');
+		idSpan.className = 'report-id';
+		idSpan.textContent = report.id || '';
+		heading.appendChild(idSpan);
 		resultContainer.appendChild(heading);
 
+		// Status badges first: the Discord approval outcome and the resulting
+		// Cloudflare One blocklist state are the headline answer to "what
+		// happened to my report?".
+		const statusRow = document.createElement('div');
+		statusRow.className = 'status-row';
+		const approval = APPROVAL_BADGES[report.approval_status] || { label: report.approval_status || 'Unknown', cls: 'badge-neutral' };
+		statusRow.appendChild(makeBadge('Approval', approval.label, approval.cls));
+		if (report.approval_status === 'approved') {
+			const list = LIST_BADGES[report.cloudflare_list_status] || { label: report.cloudflare_list_status || 'Unknown', cls: 'badge-neutral' };
+			statusRow.appendChild(makeBadge('Blocklist', list.label, list.cls));
+		}
+		resultContainer.appendChild(statusRow);
+
+		// Brief, non-revealing explanation of the Approval badge — enough for a
+		// reporter to understand the status without exposing the review process.
+		const hint = document.createElement('p');
+		hint.className = 'status-hint';
+		hint.textContent = 'Approval shows whether a reviewer has accepted this report for follow-up action.';
+		resultContainer.appendChild(hint);
+
+		const decidedAt = formatTimestamp(report.approval_decided_at);
+		if (decidedAt) {
+			const note = document.createElement('p');
+			note.className = 'status-note';
+			note.textContent = `Decision recorded ${decidedAt}`;
+			resultContainer.appendChild(note);
+		}
+
+		resultContainer.appendChild(makeSectionHeading('Submission'));
 		const grid = document.createElement('div');
 		grid.className = 'report-grid';
-		grid.appendChild(makeItem('Name:', report.name));
-		grid.appendChild(makeItem('Category:', report.category));
-		grid.appendChild(makeItem('Source:', report.source));
-		grid.appendChild(makeItem('URL:', report.url, { fullWidth: true }));
-		grid.appendChild(makeItem('Description:', report.description || 'N/A', { fullWidth: true }));
-		grid.appendChild(makeItem('Submission Success:', report.submission_success ? 'Yes' : 'No'));
+		grid.appendChild(makeItem('Name', report.name));
+		grid.appendChild(makeItem('Category', report.category));
+		grid.appendChild(makeItem('Source', report.source));
+		grid.appendChild(makeItem('Submission success', report.submission_success ? 'Yes' : 'No'));
+		if (report.normalized_hostname) grid.appendChild(makeItem('Hostname', report.normalized_hostname));
+		const submittedAt = formatTimestamp(report.timestamp);
+		if (submittedAt) grid.appendChild(makeItem('Submitted', submittedAt));
+		grid.appendChild(makeItem('URL', report.url, { fullWidth: true }));
+		grid.appendChild(makeItem('Description', report.description || 'N/A', { fullWidth: true }));
 		resultContainer.appendChild(grid);
 
-		if (report.urlscan_uuid) resultContainer.appendChild(makeItem('URLScan UUID:', report.urlscan_uuid));
-		if (report.virustotal_scan_id) resultContainer.appendChild(makeItem('VirusTotal Scan ID:', report.virustotal_scan_id));
-		if (report.ipqs_scan) resultContainer.appendChild(makeItem('IPQualityScore:', makeJsonSummary(report.ipqs_scan), { fullWidth: true }));
-		if (report.cloudflare_scan_uuid) resultContainer.appendChild(makeItem('Cloudflare Scan UUID:', report.cloudflare_scan_uuid));
-		if (report.api_errors) resultContainer.appendChild(makeItem('API Errors:', makeApiErrorsSummary(report.api_errors), { fullWidth: true }));
+		const analysis = document.createElement('div');
+		analysis.className = 'report-grid';
+		if (report.urlscan_uuid) analysis.appendChild(makeItem('URLScan UUID', report.urlscan_uuid));
+		if (report.virustotal_scan_id) analysis.appendChild(makeItem('VirusTotal Scan ID', report.virustotal_scan_id));
+		if (report.cloudflare_scan_uuid) analysis.appendChild(makeItem('Cloudflare Scan UUID', report.cloudflare_scan_uuid));
+		if (report.ipqs_scan) analysis.appendChild(makeItem('IPQualityScore', makeJsonSummary(report.ipqs_scan), { fullWidth: true }));
+		if (report.api_errors) analysis.appendChild(makeItem('API errors', makeApiErrorsSummary(report.api_errors), { fullWidth: true }));
+		if (analysis.children.length > 0) {
+			resultContainer.appendChild(makeSectionHeading('Analysis results'));
+			resultContainer.appendChild(analysis);
+		}
 
 		if (Array.isArray(report.provider_reports) && report.provider_reports.length > 0) {
-			const providerHeading = document.createElement('h4');
-			providerHeading.textContent = 'Provider Reporting';
-			resultContainer.appendChild(providerHeading);
-
+			resultContainer.appendChild(makeSectionHeading('Provider reporting'));
 			const providerGrid = document.createElement('div');
 			providerGrid.className = 'report-grid';
 			report.provider_reports.forEach((providerReport) => {
-				providerGrid.appendChild(makeItem(`${providerName(providerReport.provider)}:`, providerSummary(providerReport), { fullWidth: true }));
+				providerGrid.appendChild(makeItem(providerName(providerReport.provider), providerSummary(providerReport), { fullWidth: true }));
 			});
 			resultContainer.appendChild(providerGrid);
 		}
+
+		appendReportActions(report);
+
+		// Move focus to the result so keyboard and screen-reader users land on it.
+		resultContainer.focus();
+	}
+
+	function makeActionLink(text, href, variant) {
+		const link = document.createElement('a');
+		link.className = 'report-cta-link ' + variant;
+		link.textContent = text;
+		link.href = href;
+		link.target = '_blank';
+		link.rel = 'nofollow noopener noreferrer external';
+		return link;
+	}
+
+	// Reminds the reporter that reporting directly to the providers involved
+	// (host, registrar, Google) is usually the fastest path to takedown.
+	function appendReportActions(report) {
+		const section = document.createElement('div');
+		section.className = 'report-cta';
+
+		const title = document.createElement('h4');
+		title.className = 'report-cta-title';
+		title.textContent = 'Report it directly to speed up takedown';
+		section.appendChild(title);
+
+		const desc = document.createElement('p');
+		desc.className = 'report-cta-text';
+		desc.textContent =
+			'Blocklists take time to propagate. Reporting straight to the hosting provider, the domain registrar, and Google Safe Browsing is often the fastest way to get a malicious site removed.';
+		section.appendChild(desc);
+
+		const actions = document.createElement('div');
+		actions.className = 'report-cta-actions';
+		if (report.url) {
+			actions.appendChild(
+				makeActionLink(
+					'Report to Google Safe Browsing →',
+					`https://safebrowsing.google.com/safebrowsing/report_phish/?hl=en&url=${encodeURIComponent(report.url)}`,
+					'primary'
+				)
+			);
+		}
+		actions.appendChild(
+			makeActionLink(
+				'Find hosting & registrar abuse contacts →',
+				report.url ? `https://phish.report/analysis?url=${encodeURIComponent(report.url)}` : 'https://phish.report/',
+				'secondary'
+			)
+		);
+		section.appendChild(actions);
+
+		const note = document.createElement('p');
+		note.className = 'report-cta-note';
+		note.textContent = 'More reporting destinations are listed higher up on this page.';
+		section.appendChild(note);
+
+		resultContainer.appendChild(section);
 	}
 });
