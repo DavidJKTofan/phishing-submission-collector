@@ -9,6 +9,7 @@ import {
 	reportToNetcraft,
 } from '../src/provider-reporting';
 import type { ProviderReportResult, ProviderReportingEnv } from '../src/provider-reporting';
+import { ProviderAuthError } from '../src/shared';
 import type { PhishingHostnameWorkflowParams } from '../src/approval';
 
 type FetchCall = { url: string; init: RequestInit };
@@ -79,6 +80,32 @@ test('submits Cloudflare abuse reports only when Cloudflare nameservers match', 
 	assert.equal(body.act, 'abuse_phishing');
 	assert.equal(body.urls, 'https://login.bad.example/path');
 	assert.equal(body.host_notification, 'send-anon');
+});
+
+test('classifies a Cloudflare abuse auth failure as a terminal ProviderAuthError', async () => {
+	mockFetch((url) => {
+		const requestUrl = new URL(url);
+		if (requestUrl.hostname === 'cloudflare-dns.com' && requestUrl.searchParams.get('name') === 'login.bad.example') {
+			return jsonResponse({ Status: 0 });
+		}
+		if (requestUrl.hostname === 'cloudflare-dns.com' && requestUrl.searchParams.get('name') === 'bad.example') {
+			return jsonResponse({ Status: 0, Answer: [{ type: 2, data: 'bob.ns.cloudflare.com.' }] });
+		}
+		if (url === 'https://rdap.cloudflare.com/rdap/v1/domain/bad.example') return jsonResponse({ objectClassName: 'domain' });
+		if (url === 'https://api.cloudflare.com/client/v4/accounts/account-1/abuse-reports/abuse_phishing') {
+			// Cloudflare auth error: code 10000 ("Authentication error"), HTTP 403.
+			return jsonResponse({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] }, 403);
+		}
+		throw new Error(`unexpected fetch ${url}`);
+	});
+
+	const error = await reportToCloudflareAbuse(makeEnv(), makeReport()).then(
+		() => null,
+		(rejection: unknown) => rejection
+	);
+
+	assert.ok(error instanceof ProviderAuthError, 'expected a ProviderAuthError so the Workflow step does not retry a permanent auth failure');
+	assert.match(error.message, /Cloudflare Abuse: Authentication error \(HTTP 403\)/);
 });
 
 test('skips Cloudflare abuse reports when nameservers are not Cloudflare', async () => {

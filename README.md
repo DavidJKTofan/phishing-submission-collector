@@ -149,7 +149,7 @@ REPORTER_COUNTRY="US"
 REPORTER_PHONE="<YOUR_CONTACT_PHONE>"
 NETCRAFT_SOURCE_UUID="<OPTIONAL_NETCRAFT_SOURCE_UUID>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
-CLOUDFLARE_API_TOKEN="<API_TOKEN_WITH_ACCOUNT_URL_SCANNER_EDIT_ZERO_TRUST_LIST_AND_ABUSE_REPORT_ACCESS>"
+CLOUDFLARE_API_TOKEN="<API_TOKEN_WITH_ACCOUNT_URL_SCANNER_EDIT_ZERO_TRUST_LIST_EDIT_AND_TRUST_AND_SAFETY_WRITE>"
 TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"
 DISCORD_APPLICATION_PUBLIC_KEY="<YOUR_DISCORD_APP_PUBLIC_KEY>"
 DISCORD_BOT_TOKEN="<YOUR_DISCORD_BOT_TOKEN>"
@@ -216,7 +216,7 @@ Required setup:
 - Create or use a Zero Trust list, for example `0_PHISHING_Hostnames`.
 - The list type must be `DOMAIN`, which Cloudflare One uses for hostnames/domains.
 - Set `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME` in `wrangler.jsonc` to the exact list name.
-- The API token in `CLOUDFLARE_API_TOKEN` needs access to read and edit Zero Trust lists. If Cloudflare URL Scanner is enabled on the form, the same token also needs `Account` > `URL Scanner` > `Edit`.
+- The API token in `CLOUDFLARE_API_TOKEN` needs access to read and edit Zero Trust lists. If Cloudflare URL Scanner is enabled on the form, the same token also needs `Account` > `URL Scanner` > `Edit`. For the post-approval Cloudflare Abuse Reports step it also needs `Account` > `Trust and Safety` > `Write` — without it the `report to Cloudflare Abuse` Workflow step fails with `Cloudflare Abuse: Authentication error`. After changing token permissions, re-publish the secret with `wrangler secret put CLOUDFLARE_API_TOKEN` (and `--env staging`).
 
 The Worker finds the list with:
 

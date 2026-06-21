@@ -8,7 +8,7 @@ import {
 	toJsonValue,
 } from './rdap.js';
 import type { JsonValue } from './rdap.js';
-import { isRecord, requireConfig } from './shared.js';
+import { ProviderAuthError, isRecord, requireConfig } from './shared.js';
 
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 const CLOUDFLARE_RDAP_DOMAIN_BASE = 'https://rdap.cloudflare.com/rdap/v1/domain';
@@ -359,7 +359,23 @@ function providerHttpError(provider: string, response: Response, data: JsonValue
 		(isRecord(data) && typeof data.message === 'string' && data.message) ||
 		(isRecord(data) && Array.isArray(data.errors) && errorListMessage(data.errors)) ||
 		`HTTP ${response.status}`;
-	return new Error(`${provider}: ${message}`);
+	const detail = `${provider}: ${message} (HTTP ${response.status})`;
+	// Auth/permission failures are terminal — the token won't gain the missing
+	// scope by retrying — so surface them as ProviderAuthError (the Workflow maps
+	// this to NonRetryableError). e.g. the Cloudflare Abuse Reports API needs the
+	// account-scoped "Trust and Safety" permission on CLOUDFLARE_API_TOKEN.
+	return isProviderAuthFailure(response, data) ? new ProviderAuthError(detail) : new Error(detail);
+}
+
+// True for HTTP 401/403 or a Cloudflare auth error code: 10000 ("Authentication
+// error" — invalid/expired token) or 9109 ("Unauthorized to access requested
+// resource" — token lacks the required permission).
+function isProviderAuthFailure(response: Response, data: JsonValue): boolean {
+	if (response.status === 401 || response.status === 403) return true;
+	if (isRecord(data) && Array.isArray(data.errors)) {
+		return data.errors.some((item) => isRecord(item) && (item.code === 10000 || item.code === 9109));
+	}
+	return false;
 }
 
 function errorListMessage(errors: unknown[]): string {

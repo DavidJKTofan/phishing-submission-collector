@@ -20,6 +20,7 @@ import {
 	HttpError,
 	MAX_BODY_BYTES,
 	MissingConfigError,
+	ProviderAuthError,
 	SECURITY_HEADERS,
 	errorMessage,
 	isRecord,
@@ -197,12 +198,11 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 		const approvalStatus: ApprovalStatus = approval.approved ? 'approved' : 'denied';
 
 		await step.do('record approval decision', async () => {
-			await updateApprovalDecision(
-				this.env.DB,
-				report.reportId,
-				{ approvalStatus, actor: formatDiscordActor(approval), cloudflareListStatus: 'not_started' },
-				1
-			);
+			const actor = formatDiscordActor(approval);
+			await updateApprovalDecision(this.env.DB, report.reportId, { approvalStatus, actor, cloudflareListStatus: 'not_started' }, 1);
+			// Return a small serializable summary so the step Output is a useful
+			// audit log in the Workflows dashboard instead of N/A.
+			return { reportId: report.reportId, approvalStatus, actor };
 		});
 
 		if (!approval.approved) {
@@ -220,6 +220,7 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 			const message = errorMessage(error);
 			await step.do('record Cloudflare One list failure', async () => {
 				await updateCloudflareListResult(this.env.DB, report.reportId, 'failed', message);
+				return { reportId: report.reportId, cloudflareListStatus: 'failed', error: message };
 			});
 			listResult = { status: 'failed', error: message };
 		}
@@ -227,6 +228,9 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 		if (listResult.status !== 'failed') {
 			await step.do('record Cloudflare One list result', async () => {
 				await updateCloudflareListResult(this.env.DB, report.reportId, listResult.status, listResult.error);
+				// Return a small serializable summary so the step Output reflects the
+				// recorded outcome (e.g. added / skipped_duplicate) instead of N/A.
+				return { reportId: report.reportId, cloudflareListStatus: listResult.status, hostname: report.normalizedHostname };
 			});
 		}
 
@@ -265,6 +269,7 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 			try {
 				await step.do('record provider reporting results', async () => {
 					await saveProviderReportResults(this.env.DB, report.reportId, providerReports);
+					return { reportId: report.reportId, providerReports: providerReports.map((item) => ({ provider: item.provider, status: item.status })) };
 				});
 			} catch (error) {
 				console.error(JSON.stringify({ event: 'provider_reporting_db_error', reportId: report.reportId, error: errorMessage(error) }));
@@ -280,13 +285,14 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 	}
 }
 
-// A missing secret/config value will not resolve by retrying within a run, so
-// surface it as a terminal (non-retryable) failure for the step.
+// A missing secret/config value or an upstream auth/permission rejection will
+// not resolve by retrying within a run, so surface either as a terminal
+// (non-retryable) failure for the step instead of burning its retry budget.
 async function nonRetryableOnConfigError<T>(action: () => Promise<T>): Promise<T> {
 	try {
 		return await action();
 	} catch (error) {
-		if (error instanceof MissingConfigError) throw new NonRetryableError(error.message);
+		if (error instanceof MissingConfigError || error instanceof ProviderAuthError) throw new NonRetryableError(error.message);
 		throw error;
 	}
 }

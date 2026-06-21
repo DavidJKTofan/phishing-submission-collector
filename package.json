@@ -7,6 +7,8 @@
     "check": "npm run typecheck && tsc -p tests/tsconfig.json --noEmit && node --check public/assets/scripts.js && node --check public/assets/report.js && node --check public/assets/theme.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "migrate": "wrangler d1 migrations apply reports_db --remote --config wrangler.jsonc",
+    "migrate:staging": "wrangler d1 migrations apply reports_db_staging --remote --config wrangler.jsonc --env staging",
     "deploy": "wrangler deploy --config wrangler.jsonc",
     "deploy:staging": "wrangler deploy --config wrangler.jsonc --env staging",
     "deploy:dry-run": "wrangler deploy --dry-run --config wrangler.jsonc",
@@ -22,5 +24,10 @@
     "typescript": "^5.9.3",
     "vitest": "~4.1.0",
     "wrangler": "^4.100.0"
+  },
+  "allowScripts": {
+    "esbuild@0.27.3": true,
+    "workerd@1.20260611.1": true,
+    "fsevents@2.3.3": true
   }
 }

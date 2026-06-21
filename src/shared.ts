@@ -89,6 +89,18 @@ export class MissingConfigError extends Error {
 	}
 }
 
+// Thrown when an upstream provider rejects our credentials (HTTP 401/403 or an
+// equivalent API auth error code). Like MissingConfigError this is terminal: a
+// retry within the same run cannot fix a token that is invalid or lacks the
+// required permission, so the Workflow converts it to a NonRetryableError
+// instead of burning the step's retry budget on a guaranteed failure.
+export class ProviderAuthError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'ProviderAuthError';
+	}
+}
+
 export function requireSecret(value: string | undefined, name: string): string {
 	if (!value) throw new MissingConfigError(name);
 	return value;
