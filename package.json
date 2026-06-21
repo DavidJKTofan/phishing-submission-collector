@@ -19,15 +19,15 @@
     "typecheck": "npm run cf-typegen && tsc --noEmit"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.16.15",
-    "@types/node": "^22.0.0",
-    "typescript": "^5.9.3",
-    "vitest": "~4.1.0",
-    "wrangler": "^4.100.0"
+    "@cloudflare/vitest-pool-workers": "^0.16.18",
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "~4.1.9",
+    "wrangler": "^4.103.0"
   },
   "allowScripts": {
-    "esbuild@0.27.3": true,
-    "workerd@1.20260611.1": true,
-    "fsevents@2.3.3": true
+    "fsevents@2.3.3": true,
+    "esbuild@0.28.1": true,
+    "workerd@1.20260617.1": true
   }
 }
