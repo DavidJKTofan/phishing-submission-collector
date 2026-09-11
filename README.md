@@ -7,34 +7,37 @@ A simple tool built on the [Cloudflare Developer Platform](https://developers.cl
 The application has two connected flows: public report submission and human approval for adding hostnames to a Cloudflare One Gateway list.
 
 1. A user submits a URL or hostname through `public/index.html`.
-2. The Worker verifies the Turnstile token and normalizes the submission to a hostname, for example `https://Login.Bad.Example/path` becomes `login.bad.example`.
-3. The selected scanner APIs run in parallel for enrichment: urlscan.io, VirusTotal, IPQualityScore, and Cloudflare URL Scanner. The reporter chooses these per submission in the **Analysis Services** panel (urlscan.io, VirusTotal, and Cloudflare URL Scanner are on by default; IPQualityScore is off).
+2. The Worker validates the input and normalizes the submission to a hostname, for example `https://Login.Bad.Example/path` becomes `login.bad.example`, then verifies the Turnstile token.
+3. The selected scanner APIs run in parallel for enrichment: urlscan.io, VirusTotal, IPQualityScore, and Cloudflare URL Scanner. The reporter chooses these per submission in the **Analysis Services** panel (urlscan.io, VirusTotal, and Cloudflare URL Scanner are on by default; IPQualityScore is off). A best-effort RDAP lookup for registrar/host abuse contacts runs concurrently (see [Registrar / host abuse contacts](#registrar--host-abuse-contacts-submission-time-reporter-driven)).
 4. The report is saved to D1 before any approval action is requested.
 5. The Worker starts the `PHISHING_HOSTNAME_WORKFLOW` Cloudflare Workflow.
 6. The Workflow sends a formatted Discord message with scanner review links and **Approve** / **Deny** buttons.
-7. Discord posts button clicks to `/discord/interactions`. The Worker verifies Discord's request signature and sends a Workflow event.
+7. Discord posts button clicks to `/discord/interactions`. The Worker verifies Discord's request signature, checks that the Workflow instance is still waiting, sends it a Workflow event, and edits the original message in place with the decision and the actor (buttons disabled).
 8. If denied, expired, or failed, the already-saved D1 report remains in place and the Workflow only updates D1 status fields.
-9. If approved, the Workflow checks the configured Cloudflare One `DOMAIN` list.
-10. If the hostname is already present, the Workflow records `skipped_duplicate`. Otherwise it appends the hostname and records `added`.
-11. After the list write, the Workflow auto-reports the URL to external abuse/threat providers — **Netcraft** (always), **Cloudflare Abuse** (only when the domain uses Cloudflare nameservers), and **Microsoft MSRC** (only when the hostname resolves to a Microsoft-owned IP) — each as its own retryable step, recording every outcome in `provider_reports`.
+9. If approved, the Workflow resolves the configured Cloudflare One `DOMAIN` list by name and appends the hostname to it (append-first, no read-before-write).
+10. If the API accepts the append, the Workflow records `added`; if the API rejects it as a duplicate, it records `skipped_duplicate`; if the write still fails after retries, it records `failed`.
+11. Whatever the list outcome, the Workflow then auto-reports the URL to external abuse/threat providers — **Netcraft** (always), **Cloudflare Abuse** (only when the domain uses Cloudflare nameservers), and **Microsoft MSRC** (only when the hostname resolves to a Microsoft-owned IP) — each as its own retryable step, recording every outcome in `provider_reports`.
 
 After a successful submission the result panel also surfaces a prominent **Report to Google Safe Browsing** call-to-action, because Google has no automated submission API (see [Scanner & Reporting APIs](#scanner--reporting-apis)).
 
 ```mermaid
 flowchart TD
-    A["User submits URL/hostname"] --> B["Worker validates Turnstile and input"]
-    B --> C["Normalize to hostname"]
-    C --> D["Run selected scanner APIs<br/>(urlscan.io, VirusTotal, IPQS, Cloudflare URL Scanner)"]
+    A["User submits URL/hostname"] --> B["Worker validates input and<br/>normalizes to hostname"]
+    B --> C["Verify Turnstile token"]
+    C --> D["Run selected scanner APIs in parallel<br/>(urlscan.io, VirusTotal, IPQS, Cloudflare URL Scanner)<br/>+ best-effort RDAP abuse-contact lookup"]
     D --> E["Save report to D1"]
     E --> F["Start Cloudflare Workflow"]
     F --> G["Post Discord approval message<br/>with scanner review links + Approve / Deny"]
+    G -->|Send fails after retries| I["Update existing D1 status only"]
     G --> H["Wait for approval event (7-day timeout)"]
-    H -->|Deny, timeout, or failure| I["Update existing D1 status only"]
-    H -->|Approve| J["Check Cloudflare One DOMAIN list"]
-    J -->|Already present| K["Record skipped_duplicate"]
-    J -->|New hostname| L["Append hostname to list"]
+    H -->|Deny, timeout, or failure| I
+    H -->|Approve| J["Append hostname to<br/>Cloudflare One DOMAIN list"]
+    J -->|API accepts| K["Record added"]
+    J -->|API rejects as duplicate| L["Record skipped_duplicate"]
+    J -->|Error after retries| M2["Record failed"]
     K --> M["Auto-report to abuse/threat providers"]
     L --> M
+    M2 --> M
     M --> N["Netcraft URL report<br/>(always)"]
     M --> O["Cloudflare Abuse<br/>(if Cloudflare nameservers)"]
     M --> P["Microsoft MSRC<br/>(if Microsoft-owned IP)"]
@@ -224,13 +227,13 @@ Required setup:
 - Set `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME` in `wrangler.jsonc` to the exact list name.
 - The API token in `CLOUDFLARE_API_TOKEN` needs access to read and edit Zero Trust lists. If Cloudflare URL Scanner is enabled on the form, the same token also needs `Account` > `URL Scanner` > `Edit`. For the post-approval Cloudflare Abuse Reports step it also needs `Account` > `Trust and Safety` > `Write` — without it the `report to Cloudflare Abuse` Workflow step fails with `Cloudflare Abuse: Authentication error`. After changing token permissions, re-publish the secret with `wrangler secret put CLOUDFLARE_API_TOKEN` (and `--env staging`).
 
-The Worker finds the list with:
+The Workflow resolves the list ID by name (it does not read the list's items) with:
 
 ```
 GET /accounts/{account_id}/gateway/lists?type=DOMAIN
 ```
 
-Then appends one item with the verified Cloudflare API endpoint:
+Then appends one item with the Cloudflare **Patch Zero Trust list** endpoint:
 
 ```
 PATCH /accounts/{account_id}/gateway/lists/{list_id}
@@ -244,14 +247,14 @@ PATCH /accounts/{account_id}/gateway/lists/{list_id}
 }
 ```
 
-This matches Cloudflare's current **Patch Zero Trust list** API, where `append` adds list items and `remove` removes item values.
+`append` adds list items and `remove` removes item values.
 
-Duplicate handling:
+Duplicate handling is append-first: the Workflow always attempts the `PATCH` and maps the API's duplicate/"already exists" error to a skip, which is atomic on the API side and avoids the read-then-write race of checking the (paginated) items first.
 
-- Existing hostnames are detected before the `PATCH` request.
-- Duplicates do not update the Cloudflare One list again.
-- D1 records `cloudflare_list_status = 'skipped_duplicate'`.
-- Workers logs include `cloudflare_one_list_duplicate`.
+- A duplicate never rewrites the Cloudflare One list.
+- D1 records `cloudflare_list_status = 'skipped_duplicate'` (`added` on success, `failed` if the write still errors after the step's retries; the error text lands in `cloudflare_list_error`).
+- Workers logs include `cloudflare_one_list_duplicate` / `cloudflare_one_list_hostname_added`.
+- Provider reporting runs after the list step regardless of its outcome.
 
 ## App Security
 
@@ -371,14 +374,16 @@ npx wrangler d1 create reports_db
 Apply the schema with the [D1 migrations framework](https://developers.cloudflare.com/d1/reference/migrations/) (`migrations_dir` is configured per database in `wrangler.jsonc`). The baseline migration is idempotent, so this is safe both on a fresh database (it creates everything) and on an existing database that already had the historical `databases/*.sql` applied manually (it records the migrations without altering existing tables):
 
 ```
-npx wrangler d1 migrations apply reports_db --remote
+npm run migrate
 ```
 
 For the staging database:
 
 ```
-npx wrangler d1 migrations apply reports_db_staging --remote --env staging
+npm run migrate:staging
 ```
+
+(These wrap `wrangler d1 migrations apply reports_db[_staging] --remote` with the right `--env`.) `wrangler deploy` does **not** apply migrations, so run the matching `migrate` script before or with any deploy that adds one.
 
 Use `--local` instead of `--remote` to target the local dev database, and `npx wrangler d1 migrations list reports_db --remote` to preview pending migrations.
 
@@ -400,10 +405,10 @@ Schema changes use the migrations framework. Create a migration, edit the genera
 
 ```
 npx wrangler d1 migrations create reports_db "add_new_column"
-npx wrangler d1 migrations apply reports_db --remote
+npm run migrate
 ```
 
-`migrations/0001_baseline.sql` is the consolidated current schema and `migrations/0002_*` drops an unused index. The historical `databases/*.sql` files are kept for reference only and are superseded by `migrations/`.
+`migrations/0001_baseline.sql` is the consolidated current schema, `migrations/0002_*` drops an unused index, and `migrations/0003_*` adds the `approval_error` column. The historical `databases/*.sql` files are kept for reference only and are superseded by `migrations/`.
 
 ## Endpoints
 
@@ -446,7 +451,7 @@ Tests are written in TypeScript and run inside the Workers runtime (workerd) via
 Run the full flow against a deployed Worker or a public tunnel. Discord cannot call a private localhost URL.
 
 1. Confirm setup:
-   - D1 migrations are applied (`npx wrangler d1 migrations apply reports_db --remote`).
+   - D1 migrations are applied (`npm run migrate`).
    - Required secrets are set.
    - Discord Interactions Endpoint URL is `https://<worker-hostname>/discord/interactions`.
    - A Zero Trust `DOMAIN` list exists with the exact name configured in `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`.
