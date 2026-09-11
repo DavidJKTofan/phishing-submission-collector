@@ -119,3 +119,16 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
+
+export function parseCsv(value: string | undefined): string[] {
+	return (value || '')
+		.split(',')
+		.map((item) => item.trim())
+		.filter(Boolean);
+}
+
+// AbortSignal.timeout rejects with a DOMException named TimeoutError;
+// AbortError is kept for signals aborted through other paths.
+export function isTimeoutOrAbortError(error: unknown): boolean {
+	return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+}

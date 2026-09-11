@@ -55,6 +55,17 @@ test('isValidAbuseEmail accepts well-formed addresses and rejects malformed ones
 	assert.equal(isValidAbuseEmail(''), false);
 	assert.equal(isValidAbuseEmail(undefined), false);
 	assert.equal(isValidAbuseEmail('spaces in@email.com'), false);
+	assert.equal(isValidAbuseEmail('abuse+tickets@host.example'), true);
+});
+
+test('isValidAbuseEmail rejects characters that could inject into the mailto: href', () => {
+	// Each of these would survive a naive "no whitespace, one @" check but can
+	// start a mailto query string, fragment, or path in the reporter's link.
+	assert.equal(isValidAbuseEmail('abuse@host.example?bcc=attacker@evil.example'), false);
+	assert.equal(isValidAbuseEmail('abuse@host.example&cc=attacker@evil.example'), false);
+	assert.equal(isValidAbuseEmail('abuse@host.example#fragment'), false);
+	assert.equal(isValidAbuseEmail('abuse@host.example/path'), false);
+	assert.equal(isValidAbuseEmail('abuse@host.example%0Abcc:x'), false);
 });
 
 test('extractAbuseContact finds the nested abuse entity email and name', () => {

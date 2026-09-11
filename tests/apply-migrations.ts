@@ -1,5 +1,6 @@
-import { applyD1Migrations, env } from 'cloudflare:test';
+import { applyD1Migrations } from 'cloudflare:test';
 import type { D1Migration } from 'cloudflare:test';
+import { env } from 'cloudflare:workers';
 import { beforeAll } from 'vitest';
 
 // The pool's D1 database starts empty. Apply the project migrations (injected as

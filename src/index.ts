@@ -24,10 +24,13 @@ import {
 	SECURITY_HEADERS,
 	errorMessage,
 	isRecord,
+	isTimeoutOrAbortError,
 	jsonResponse,
+	parseCsv,
 	readTextBody,
 	requireSecret,
 } from './shared';
+import { TURNSTILE_TOKEN_MAX_LENGTH, validateTurnstile } from './turnstile';
 
 const HTML_CSP =
 	"default-src 'self'; " +
@@ -43,11 +46,8 @@ const HTML_CSP =
 	"form-action 'self'; " +
 	'upgrade-insecure-requests';
 
-const SITEVERIFY_TIMEOUT_MS = 5_000;
 const API_TIMEOUT_MS = 10_000;
 const MAX_URL_LENGTH = 2_048;
-const TURNSTILE_TOKEN_MAX_LENGTH = 2_048;
-const TURNSTILE_ACTION = 'submit-report';
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 const APPROVAL_TIMEOUT = '7 days';
 const DISCORD_APPROVAL_SEND_TIMEOUT = '30 seconds';
@@ -97,24 +97,6 @@ type SubmissionResult = {
 
 type ApiResultKey = 'urlscan_uuid' | 'virustotal_scan_id' | 'ipqs_scan' | 'cloudflare_scan_uuid';
 type ApiResponseData = Partial<Pick<SubmissionResult, ApiResultKey>>;
-
-type TurnstileSiteverifyResponse = {
-	success: boolean;
-	'error-codes'?: string[];
-	challenge_ts?: string;
-	hostname?: string;
-	action?: string;
-	cdata?: string;
-};
-
-// Discriminated union so the success and failure shapes can't be mixed up: a
-// passing result carries the verified hostname/action, a failing one carries a
-// server-side reason. The `error` string is for logs only — it is never sent to
-// the client, which always receives a generic message so a probing attacker
-// learns nothing about why verification failed.
-type TurnstileValidation =
-	| { success: true; hostname: string; action: string; challengeTs?: string }
-	| { success: false; error: string; errorCodes?: string[] };
 
 // step.do()'s return type must satisfy `T extends Rpc.Serializable<T>`. Checking
 // that constraint against ProviderReportResult's recursive `JsonValue` field
@@ -448,111 +430,6 @@ async function readJsonBody(request: Request, maxBytes: number): Promise<unknown
 	}
 }
 
-async function validateTurnstile(token: string, ip: string | null, env: Env): Promise<TurnstileValidation> {
-	if (!token || token.length > TURNSTILE_TOKEN_MAX_LENGTH) {
-		return { success: false, error: 'Invalid token format' };
-	}
-
-	if (!env.TURNSTILE_SECRET_KEY) {
-		console.error('Turnstile validation failed: missing TURNSTILE_SECRET_KEY');
-		return { success: false, error: 'Server Turnstile configuration missing' };
-	}
-
-	const expectedHostnames = parseCsv(env.TURNSTILE_EXPECTED_HOSTNAMES);
-	if (expectedHostnames.length === 0) {
-		console.error('Turnstile validation failed: TURNSTILE_EXPECTED_HOSTNAMES is not configured');
-		return { success: false, error: 'Expected hostname configuration missing' };
-	}
-
-	// One idempotency_key shared across attempts lets a retried request after a
-	// transient failure revalidate the single-use token (Turnstile server-side
-	// validation docs: idempotency keys for retry operation).
-	const idempotencyKey = crypto.randomUUID();
-	let attempt = await requestSiteverify(env.TURNSTILE_SECRET_KEY, token, ip, idempotencyKey);
-	if (!attempt.outcome && attempt.retryable) {
-		attempt = await requestSiteverify(env.TURNSTILE_SECRET_KEY, token, ip, idempotencyKey);
-	}
-	if (!attempt.outcome) return { success: false, error: attempt.error };
-
-	const outcome = attempt.outcome;
-
-	// Fail closed first: if Cloudflare did not pass the token (expired, already
-	// redeemed, forged, wrong secret, …) reject before running the cross-checks
-	// below, which only carry meaning for a token Cloudflare actually accepted.
-	if (!outcome.success) {
-		return { success: false, error: 'token rejected', errorCodes: outcome['error-codes'] ?? [] };
-	}
-
-	// Bind the accepted token to this form. A token is otherwise replayable
-	// against any endpoint sharing the sitekey, so require the action it was
-	// minted for and a hostname we explicitly trust.
-	if (outcome.action !== TURNSTILE_ACTION) {
-		console.error('Turnstile action mismatch:', { got: outcome.action, expected: TURNSTILE_ACTION });
-		return { success: false, error: 'action mismatch' };
-	}
-
-	if (!outcome.hostname || !expectedHostnames.includes(outcome.hostname)) {
-		console.error('Turnstile hostname mismatch:', { got: outcome.hostname, expected: expectedHostnames });
-		return { success: false, error: 'hostname mismatch' };
-	}
-
-	// Reaching here means the token passed every check, so this event names a
-	// genuine verification. Record what was verified for audit; failures are
-	// logged at the call site.
-	console.log(
-		JSON.stringify({
-			event: 'turnstile_verified',
-			hostname: outcome.hostname,
-			action: outcome.action,
-			challengeTs: outcome.challenge_ts,
-			timestamp: new Date().toISOString(),
-		})
-	);
-
-	return { success: true, hostname: outcome.hostname, action: outcome.action, challengeTs: outcome.challenge_ts };
-}
-
-type SiteverifyAttempt = { outcome: TurnstileSiteverifyResponse; error?: undefined } | { outcome?: undefined; error: string; retryable: boolean };
-
-async function requestSiteverify(secretKey: string, token: string, ip: string | null, idempotencyKey: string): Promise<SiteverifyAttempt> {
-	try {
-		const turnstileFormData = new FormData();
-		turnstileFormData.append('secret', secretKey);
-		turnstileFormData.append('response', token);
-		if (ip) turnstileFormData.append('remoteip', ip);
-		turnstileFormData.append('idempotency_key', idempotencyKey);
-
-		const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-			method: 'POST',
-			body: turnstileFormData,
-			signal: AbortSignal.timeout(SITEVERIFY_TIMEOUT_MS),
-		});
-
-		if (!response.ok) {
-			console.error('Turnstile siteverify HTTP error:', response.status);
-			return { error: `siteverify HTTP ${response.status}`, retryable: response.status >= 500 };
-		}
-
-		const outcome: unknown = await response.json();
-		if (!isTurnstileSiteverifyResponse(outcome)) {
-			console.error('Turnstile siteverify returned a malformed response');
-			return { error: 'Malformed siteverify response', retryable: false };
-		}
-		return { outcome };
-	} catch (error) {
-		const reason = isTimeoutOrAbortError(error) ? `timeout after ${SITEVERIFY_TIMEOUT_MS}ms` : errorMessage(error);
-		console.error('Turnstile verification error:', reason);
-		return { error: reason, retryable: true };
-	}
-}
-
-function isTurnstileSiteverifyResponse(value: unknown): value is TurnstileSiteverifyResponse {
-	if (!isRecord(value) || typeof value.success !== 'boolean') return false;
-	const errorCodes = value['error-codes'];
-	if (errorCodes !== undefined && (!Array.isArray(errorCodes) || !errorCodes.every((code) => typeof code === 'string'))) return false;
-	return ['challenge_ts', 'hostname', 'action', 'cdata'].every((key) => value[key] === undefined || typeof value[key] === 'string');
-}
-
 async function handleSubmission(formData: SubmissionData, env: Env, ctx: ExecutionContext): Promise<SubmissionResult> {
 	const id = crypto.randomUUID();
 	const requestId = crypto.randomUUID();
@@ -763,12 +640,6 @@ async function callApiWithTimeout<T>(apiCall: (signal: AbortSignal) => Promise<T
 		if (isTimeoutOrAbortError(error)) throw new Error(`API timeout after ${timeoutMs}ms`);
 		throw error;
 	}
-}
-
-// AbortSignal.timeout rejects with a DOMException named TimeoutError;
-// AbortError is kept for signals aborted through other paths.
-function isTimeoutOrAbortError(error: unknown): boolean {
-	return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
 async function callUrlScanAPI(submittedUrl: string, env: Env, signal: AbortSignal): Promise<ApiResponseData> {
@@ -1077,13 +948,6 @@ async function getProviderReportsFromDB(db: D1Database, reportId: string): Promi
 		if (errorMessage(error).includes('no such table: provider_reports')) return [];
 		throw error;
 	}
-}
-
-function parseCsv(value: string | undefined): string[] {
-	return (value || '')
-		.split(',')
-		.map((item) => item.trim())
-		.filter(Boolean);
 }
 
 function stringField(value: unknown): string {

@@ -12,10 +12,14 @@ import {
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
-// Discord webhook follow-ups run inside ctx.waitUntil (outside any Workflow
-// step timeout), so they need their own bound (Workers best practices: set
-// reasonable timeouts on outbound requests).
-const DISCORD_WEBHOOK_TIMEOUT_MS = 10_000;
+// Every outbound call gets its own bound (Workers best practices: set
+// reasonable timeouts on outbound requests). Discord webhook follow-ups run
+// inside ctx.waitUntil, outside any Workflow step timeout, so this is their
+// only bound; the Workflow-step calls (approval message, Gateway list) are also
+// bounded by their step timeout, but a per-request timeout stops one hung
+// upstream call from consuming the whole step budget before the retry.
+const DISCORD_API_TIMEOUT_MS = 10_000;
+const CLOUDFLARE_API_TIMEOUT_MS = 15_000;
 const DISCORD_INTERACTION_PING = 1;
 const DISCORD_INTERACTION_MESSAGE_COMPONENT = 3;
 const DISCORD_RESPONSE_PONG = 1;
@@ -240,6 +244,7 @@ export async function sendDiscordApprovalMessage(
 			allowed_mentions: { parse: [] },
 			components: buildDiscordApprovalComponents(instanceId, false),
 		}),
+		signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
 	});
 
 	const data = (await response.json().catch(() => ({}))) as DiscordMessage & { message?: string };
@@ -254,7 +259,7 @@ async function findExistingDiscordApprovalMessage(channelId: string, botToken: s
 	try {
 		const response = await fetch(`${DISCORD_API_BASE}/channels/${channelId}/messages?limit=50`, {
 			headers: { Authorization: `Bot ${botToken}` },
-			signal: AbortSignal.timeout(DISCORD_WEBHOOK_TIMEOUT_MS),
+			signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
 		});
 		if (!response.ok) return null;
 		const messages = (await response.json()) as unknown;
@@ -309,6 +314,7 @@ export async function addHostnameToCloudflareOneList(
 			body: JSON.stringify({
 				append: [{ value: hostname, description: `Report ${reportId}` }],
 			}),
+			signal: AbortSignal.timeout(CLOUDFLARE_API_TIMEOUT_MS),
 		}
 	);
 
@@ -334,6 +340,7 @@ async function getCloudflareOneHostnameList(env: ApprovalEnv): Promise<{ id: str
 	const listName = requireConfig(env.CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME, 'CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME');
 	const response = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/gateway/lists?type=DOMAIN`, {
 		headers: { Authorization: `Bearer ${requireSecret(env.CLOUDFLARE_API_TOKEN, 'CLOUDFLARE_API_TOKEN')}` },
+		signal: AbortSignal.timeout(CLOUDFLARE_API_TIMEOUT_MS),
 	});
 	const data = (await response.json().catch(() => ({}))) as CloudflareApiResponse<CloudflareZeroTrustList[]>;
 	if (!response.ok || data.success === false) throw new Error(cloudflareApiError(data, response.status));
@@ -447,7 +454,7 @@ async function discordWebhookRequest(method: 'POST' | 'PATCH', url: string, body
 			method,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(body),
-			signal: AbortSignal.timeout(DISCORD_WEBHOOK_TIMEOUT_MS),
+			signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
 		});
 		if (!response.ok) {
 			console.error(JSON.stringify({ event: failureEvent, status: response.status }));
@@ -547,19 +554,16 @@ async function verifyDiscordRequest(request: Request, body: string, env: Approva
 	}
 }
 
+// The Workers runtime implements the standard Web Crypto `Ed25519` algorithm
+// (the tests sign with it), so no legacy `NODE-ED25519` fallback is needed. An
+// import/verify failure (e.g. a malformed 32-byte key) propagates to the caller,
+// which turns it into a 401 with the real error in the logged reason.
 async function verifyEd25519Signature(publicKeyBytes: Uint8Array, signatureBytes: Uint8Array, data: Uint8Array): Promise<boolean> {
 	const publicKey = toArrayBuffer(publicKeyBytes);
 	const signature = toArrayBuffer(signatureBytes);
 	const payload = toArrayBuffer(data);
-	try {
-		const key = await crypto.subtle.importKey('raw', publicKey, { name: 'Ed25519' }, false, ['verify']);
-		return await crypto.subtle.verify('Ed25519', key, signature, payload);
-	} catch {
-		const key = await crypto.subtle.importKey('raw', publicKey, { name: 'NODE-ED25519', namedCurve: 'NODE-ED25519' }, false, [
-			'verify',
-		]);
-		return crypto.subtle.verify('NODE-ED25519', key, signature, payload);
-	}
+	const key = await crypto.subtle.importKey('raw', publicKey, { name: 'Ed25519' }, false, ['verify']);
+	return crypto.subtle.verify('Ed25519', key, signature, payload);
 }
 
 function cloudflareApiError(data: CloudflareApiResponse<unknown>, status: number): string {

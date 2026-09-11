@@ -1,9 +1,12 @@
 // Integration tests for the Worker fetch handler, running in workerd via
-// @cloudflare/vitest-pool-workers (SELF dispatches to the real Worker with
-// the bindings from wrangler.jsonc). These cover routing, CORS, and input
-// validation paths that fail before any external service or D1 query.
-import { SELF, env } from 'cloudflare:test';
+// @cloudflare/vitest-plugin (`exports.default` is a loopback stub to the real
+// Worker's default export with the bindings from wrangler.jsonc). These cover
+// routing, CORS, and input validation paths that fail before any external
+// service or D1 query.
+import { env, exports } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
+
+const SELF = exports.default;
 
 const ALLOWED_ORIGIN = 'https://report.automatic-demo.com';
 

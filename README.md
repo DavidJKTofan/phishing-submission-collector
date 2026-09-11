@@ -69,6 +69,7 @@ project/
 │   ├── abuse-contacts.ts       # Submission-time registrar/host abuse-contact lookup
 │   ├── rdap.ts                 # Shared DoH + RDAP primitives (used by the two above)
 │   ├── hostname.ts             # URL/domain normalization and validation
+│   ├── turnstile.ts            # Server-side Turnstile validation (incl. staging testing-key rules)
 │   └── shared.ts               # Shared HTTP/Worker helpers (headers, body, errors)
 │
 ├── migrations/                 # Canonical D1 schema (wrangler d1 migrations)
@@ -96,13 +97,17 @@ project/
 │       └── styles.css          # Frontend stylesheet
 │
 ├── tests/                      # Vitest suites (run in workerd)
-│   ├── *.test.ts               # approval, hostname, provider-reporting, abuse-contacts, index
+│   ├── *.test.ts               # approval, hostname, provider-reporting, abuse-contacts, turnstile, index
 │   ├── apply-migrations.ts     # Setup file: applies D1 migrations to the test database
 │   └── tsconfig.json           # Test-only TS config
 │
+├── scripts/
+│   └── staging-check.sh        # Smoke-checks staging through Cloudflare Access (service token)
+│
 ├── wrangler.jsonc              # Cloudflare Workers configuration (prod + staging env)
 ├── vitest.config.mts           # Workers test pool configuration
-└── .dev.vars.example           # Template for local secrets (copy to .dev.vars)
+├── .dev.vars.example           # Template for local secrets (copy to .dev.vars)
+└── .env.staging-access.example # Template for the staging Access service token (copy to .env.staging-access)
 ```
 
 ## Scanner & Reporting APIs
@@ -150,7 +155,7 @@ REPORTER_PHONE="<YOUR_CONTACT_PHONE>"
 NETCRAFT_SOURCE_UUID="<OPTIONAL_NETCRAFT_SOURCE_UUID>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
 CLOUDFLARE_API_TOKEN="<API_TOKEN_WITH_ACCOUNT_URL_SCANNER_EDIT_ZERO_TRUST_LIST_EDIT_AND_TRUST_AND_SAFETY_WRITE>"
-TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"
+TURNSTILE_SECRET_KEY="<YOUR_TURNSTILE_SECRET_KEY>"   # staging uses Turnstile's testing secret, see "Staging deployment"
 DISCORD_APPLICATION_PUBLIC_KEY="<YOUR_DISCORD_APP_PUBLIC_KEY>"
 DISCORD_BOT_TOKEN="<YOUR_DISCORD_BOT_TOKEN>"
 DISCORD_APPROVAL_CHANNEL_ID="<YOUR_DISCORD_CHANNEL_ID>"
@@ -172,6 +177,7 @@ These should be pinned to the exact production origin and hostname.
 |---|---|---|
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist for `/submit` and `/api/report/`. | `https://report.example.com` |
 | `TURNSTILE_EXPECTED_HOSTNAMES` | Comma-separated allowlist for the `hostname` returned by Turnstile Siteverify. | `report.example.com` |
+| `TURNSTILE_ALLOW_TESTING_KEYS` | **Staging only.** Must be exactly `true` for the Worker to accept a Turnstile *testing* secret (see [Staging deployment](#staging-deployment)). Unset in production — never add it there. | `true` |
 | `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME` | Exact Cloudflare One Gateway `DOMAIN` list name to append approved hostnames to. | `0_PHISHING_Hostnames` |
 | `REPORTER_NAME` | Reporter display name included in provider abuse submissions. | `PRIVATE` |
 
@@ -249,7 +255,7 @@ Duplicate handling:
 
 ## App Security
 
-- **Cloudflare Turnstile** — required to submit. The sitekey is set as `data-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); the secret is verified server-side with HTTP `response.ok` checking, a shared idempotency key reused across one bounded retry (on `5xx`/network errors), a 5 s timeout via `AbortSignal.timeout()`, response-shape validation, strict action validation (`submit-report`), and hostname validation (`TURNSTILE_EXPECTED_HOSTNAMES`). All five Turnstile callbacks (`callback`, `expired-callback`, `error-callback`, `timeout-callback`, `unsupported-callback`) are wired with retry/reset logic.
+- **Cloudflare Turnstile** — required to submit. The sitekey is set as `data-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); the secret is verified server-side with HTTP `response.ok` checking, a shared idempotency key reused across one bounded retry (on `5xx`/network errors), a 5 s timeout via `AbortSignal.timeout()`, response-shape validation, strict action validation (`submit-report`), and hostname validation (`TURNSTILE_EXPECTED_HOSTNAMES`). All five Turnstile callbacks (`callback`, `expired-callback`, `error-callback`, `timeout-callback`, `unsupported-callback`) are wired with retry/reset logic. Validation lives in [src/turnstile.ts](src/turnstile.ts). Staging runs Cloudflare's [testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) so automated checks can submit; because a testing secret accepts *any* token, the Worker only honors one when `TURNSTILE_ALLOW_TESTING_KEYS="true"` is also set, and otherwise rejects every submission (fail closed). See [Staging deployment](#staging-deployment).
 - **CORS** — exact-origin allowlist driven by `ALLOWED_ORIGINS` with a `Vary: Origin` header. Same-origin requests are always allowed.
 - **Security response headers** — every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, `Strict-Transport-Security`, and a restrictive `Permissions-Policy`. Static pages get their `Content-Security-Policy` from `public/_headers` (authoritative under asset-first routing); the submission page (`/`) needs no `style-src 'unsafe-inline'`, while `/report` keeps it for its inline `<style>`/`style=""`. The Turnstile script/iframe are allowed only where needed. All CSPs set `object-src 'none'` and `upgrade-insecure-requests`.
 - **Body size guard** — `/submit` rejects declared or streamed bodies over 50,000 bytes (`413`).
@@ -305,6 +311,20 @@ Deploy staging:
 npm run deploy:staging
 ```
 
+#### Turnstile on staging (testing keys)
+
+Staging runs Cloudflare's always-pass [Turnstile testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) so agents and automated browser checks can submit through the form without solving a challenge. Three pieces make this work, and all three are staging-scoped:
+
+| Piece | Where | Value |
+|---|---|---|
+| Testing sitekey | `data-testing-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); `scripts.js` renders it only when `location.hostname` is listed in `data-testing-hostnames` | `1x00000000000000000000AA` (visible widget, always passes; issues the dummy token `XXXX.DUMMY.TOKEN.XXXX`) |
+| Testing secret | Staging Worker secret: `npx wrangler secret put TURNSTILE_SECRET_KEY --env staging` | `1x0000000000000000000000000000000AA` (Siteverify answers `success: true` for **any** token, `hostname: "example.com"`, no `action`) |
+| Opt-in | `TURNSTILE_ALLOW_TESTING_KEYS: "true"` under `env.staging.vars` in `wrangler.jsonc` | Required: the Worker recognizes the documented testing secrets and refuses to validate with one unless this var is exactly `true` |
+
+Because the testing secret accepts every token, the opt-in var is the safety net: a testing secret that accidentally reaches an environment without `TURNSTILE_ALLOW_TESTING_KEYS` makes every `/submit` fail closed (`Invalid security verification`, with `TURNSTILE_ALLOW_TESTING_KEYS is not "true"` in the logs) instead of silently disabling bot protection. Accepted testing-key verifications are logged as `turnstile_verified` with `testingKey: true`.
+
+**Never** set the testing sitekey, the testing secret, or `TURNSTILE_ALLOW_TESTING_KEYS` on the production Worker (`phish-submission-collector`). Production keeps the real widget in `data-sitekey` and the real `TURNSTILE_SECRET_KEY`.
+
 ### Verifying a deployment
 
 Both public origins sit behind Cloudflare edge protection, so a freshly deployed Worker is **not** reachable with anonymous tools like `curl`:
@@ -313,6 +333,32 @@ Both public origins sit behind Cloudflare edge protection, so a freshly deployed
 - **Production** (`report.automatic-demo.com`) is fronted by a **WAF/firewall custom rule** that returns `403` to automated requests; real browsers pass.
 
 Confirm a deploy via the control plane — `npx wrangler deployments list` (add `--env staging` for staging) plus D1 queries (`npx wrangler d1 migrations list … --remote`) — or load the site in an allowed/authenticated browser. Note that `POST /discord/interactions` must be allowed through (an Access bypass / WAF skip rule), because Discord cannot authenticate through Access.
+
+#### Automated checks against staging (Access service token)
+
+The staging Access application has a second policy — action **Service Auth**, include **Service Token** — bound to a dedicated [service token](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/). Service Auth policies are evaluated before the Allow policy, so humans keep logging in through the identity provider while scripts and agents present the token as two request headers:
+
+```
+CF-Access-Client-Id: <client-id>.access
+CF-Access-Client-Secret: <client-secret>
+```
+
+1. Copy [.env.staging-access.example](.env.staging-access.example) to `.env.staging-access` (gitignored, `chmod 600`) and fill in the token. Never commit it, never put it in `wrangler.jsonc` or `.dev.vars`.
+2. Run the smoke check:
+   ```
+   scripts/staging-check.sh            # read-only: /, /report, /api/report/<unknown id>, and Access still enforced without the token
+   scripts/staging-check.sh --submit   # additionally submits one real test report through /submit with the Turnstile dummy token
+   ```
+   `--submit` writes a row to the staging D1, starts the approval Workflow, and posts a Discord approval message (click **Deny**); it skips all scanners so no urlscan/VirusTotal/IPQS quota is spent.
+
+Expected responses: `200` on `/` and `/report`, a Worker JSON `404` for an unknown report ID, and `302` to `*.cloudflareaccess.com` without the headers. A `302` *with* the headers means the token is wrong, expired, or not bound to the staging app's Service Auth policy.
+
+Notes for browser-based checks:
+
+- **Playwright / Puppeteer** can send the headers on every request (`browser.newContext({ extraHTTPHeaders: { 'CF-Access-Client-Id': …, 'CF-Access-Client-Secret': … } })`). Alternatively, the first service-token-authenticated response carries `Set-Cookie: CF_Authorization=<jwt>` (24 h); capture it with `curl -c` and inject it via `context.addCookies()` so the browser never holds the secret.
+- **A real browser profile** (for example Claude in Chrome) can simply reuse your own Access login — no token needed.
+- **Embedded browser panes without header/cookie injection** cannot pass Access on their own; log in interactively inside the pane, or use one of the two options above.
+- Access logs Service Auth requests with the token's Client ID (unlike Bypass policies, which are not logged). Rotate the secret from **Zero Trust → Access controls → Service credentials → Service Tokens** if it is ever exposed; the Client ID is unchanged by rotation.
 
 ## D1 Reports Database
 
@@ -372,7 +418,7 @@ Both sit behind edge protection (see [Verifying a deployment](#verifying-a-deplo
 
 | Method | Path | Purpose | Access / auth |
 |---|---|---|---|
-| `POST` | `/submit` | Submit a URL/domain for analysis and start the approval Workflow. JSON body. | Public; gated by Turnstile token + CORS origin allowlist. |
+| `POST` | `/submit` | Submit a URL/domain for analysis and start the approval Workflow. JSON body. | Public; gated by Turnstile token + CORS origin allowlist. On staging the Turnstile dummy token `XXXX.DUMMY.TOKEN.XXXX` is accepted (testing keys). |
 | `GET` | `/api/report/:id` | Look up a stored report by UUIDv4. Returns a minimal public projection (no PII/internal fields). | Public by UUID; CORS origin allowlist. |
 | `POST` | `/discord/interactions` | Receives Discord button clicks (Approve/Deny) and the validation `PING`; forwards the decision to the Workflow. | Verified via Discord Ed25519 request signature. Must be allowed past Access/WAF (Discord cannot authenticate). |
 | `OPTIONS` | `/submit`, `/api/report/:id` | CORS preflight. | `204` for allowed origins, `403` otherwise. |
@@ -388,9 +434,12 @@ Both sit behind edge protection (see [Verifying a deployment](#verifying-a-deplo
 npm run test
 npm run check
 npm run deploy:dry-run
+npm run check:startup
 ```
 
-Tests are written in TypeScript and run inside the Workers runtime (workerd) via [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/), using the bindings declared in `wrangler.jsonc` (see `vitest.config.mts`). `tests/index.test.ts` exercises the real `fetch` handler through `SELF`. The project's D1 migrations are applied to the ephemeral test database (via `tests/apply-migrations.ts`), so read-path tests run against the real schema — `index.test.ts` seeds a row and reads it back through `/api/report/:id`, guarding the read projection against schema drift.
+`npm run check:startup` runs `wrangler check startup`, which reports the bundle size and a local CPU profile of the Worker's startup phase (the `.cpuprofile` it writes is gitignored; open it in Chrome DevTools or VS Code for a flamegraph).
+
+Tests are written in TypeScript and run inside the Workers runtime (workerd) via [`@cloudflare/vitest-plugin`](https://developers.cloudflare.com/workers/testing/vitest-integration/), using the bindings declared in `wrangler.jsonc` (see `vitest.config.mts`). `tests/index.test.ts` exercises the real `fetch` handler through the `exports.default` loopback stub from `cloudflare:workers`. The project's D1 migrations are applied to the ephemeral test database (via `tests/apply-migrations.ts`), so read-path tests run against the real schema — `index.test.ts` seeds a row and reads it back through `/api/report/:id`, guarding the read projection against schema drift.
 
 ### End-to-end approval flow
 
@@ -401,7 +450,7 @@ Run the full flow against a deployed Worker or a public tunnel. Discord cannot c
    - Required secrets are set.
    - Discord Interactions Endpoint URL is `https://<worker-hostname>/discord/interactions`.
    - A Zero Trust `DOMAIN` list exists with the exact name configured in `CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME`.
-2. Submit a fresh hostname through the browser form so Turnstile issues a real token.
+2. Submit a fresh hostname through the browser form so Turnstile issues a real token. (On staging the testing widget issues the dummy token instead; `scripts/staging-check.sh --submit` does the same from the CLI through Access.)
 3. Confirm D1 has the saved pending report:
    ```
    npx wrangler d1 execute reports_db --remote --command="SELECT id, normalized_hostname, workflow_instance_id, approval_status, cloudflare_list_status FROM reports_v2 WHERE id = '<REPORT_ID>'"
@@ -453,5 +502,6 @@ This project is intended for educational purposes only and is provided "as-is" w
 - **Independence:** This repository is neither affiliated with nor endorsed by any of the APIs, entities, or organizations mentioned.
 - **Use Responsibly:** Always adhere to the terms of service for any APIs and ensure compliance with local laws when handling sensitive or potentially malicious data.
 - **Liability:** The repository owners are not responsible for misuse or consequences arising from the use of this tool.
+- **Data sharing:** Submitted information is stored in D1 and forwarded to third parties: the reported URL goes to the selected enrichment scanners (urlscan.io, VirusTotal, IPQualityScore, Cloudflare URL Scanner) at submission time, and after approval the URL, the submitter's name, and the description are included in the evidence notes sent to the abuse-reporting providers (Netcraft, Cloudflare Abuse, Microsoft MSRC) and shown in the Discord approval message. The submission form states this in its footer; keep that notice in sync if the set of providers or forwarded fields changes.
 
 For more information, consult the documentation of the respective APIs and legal guidelines for reporting phishing or malicious activities.

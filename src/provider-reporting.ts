@@ -16,6 +16,13 @@ const MICROSOFT_MSRC_ABUSE_ENDPOINT = 'https://api.msrc.microsoft.com/report/v3.
 const NETCRAFT_REPORT_URLS_ENDPOINT = 'https://report.netcraft.com/api/v3/report/urls';
 const RDAP_IP_BASE = 'https://rdap.org/ip';
 const MAX_PROVIDER_RESPONSE_CHARS = 12_000;
+// Per-request bounds (Workers best practices: set reasonable timeouts on
+// outbound requests). The enclosing Workflow step has its own 2-minute
+// timeout, but without these one hung provider/RDAP/DoH call would consume the
+// whole step budget before the step could retry. DNS resolution may chase up
+// to 8 CNAMEs (3 queries each), so it gets a larger budget than one request.
+const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
+const DNS_RESOLUTION_TIMEOUT_MS = 20_000;
 
 export const PROVIDERS = ['netcraft', 'cloudflare_abuse', 'microsoft_msrc'] as const;
 
@@ -79,6 +86,7 @@ export async function reportToNetcraft(
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
+		signal: requestTimeout(),
 	});
 	const data = await readJsonBody(response);
 	if (!response.ok) throw providerHttpError('Netcraft', response, data);
@@ -135,6 +143,7 @@ export async function reportToCloudflareAbuse(
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify(body),
+		signal: requestTimeout(),
 	});
 	const data = await readJsonBody(response);
 	if (!response.ok || (isRecord(data) && data.success === false)) throw providerHttpError('Cloudflare Abuse', response, data);
@@ -153,7 +162,7 @@ export async function reportToMicrosoftMsrc(
 	env: ProviderReportingEnv,
 	report: PhishingHostnameWorkflowParams
 ): Promise<ProviderReportResult> {
-	const resolved = await resolveHostnameIps(report.normalizedHostname);
+	const resolved = await resolveHostnameIps(report.normalizedHostname, AbortSignal.timeout(DNS_RESOLUTION_TIMEOUT_MS));
 	if (resolved.ips.length === 0) {
 		return {
 			provider: 'microsoft_msrc',
@@ -199,6 +208,7 @@ export async function reportToMicrosoftMsrc(
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
+		signal: requestTimeout(),
 	});
 	const data = await readJsonBody(response);
 	if (!response.ok) throw providerHttpError('Microsoft MSRC', response, data);
@@ -223,7 +233,7 @@ export async function findCloudflareNameserver(hostname: string): Promise<{
 	const checkedDomains: string[] = [];
 	for (const domain of domainCandidates(hostname)) {
 		checkedDomains.push(domain);
-		const answers = await queryDns(domain, 'NS');
+		const answers = await queryDns(domain, 'NS', requestTimeout());
 		const nameservers = answers
 			.filter((answer) => answer.type === 2 && typeof answer.data === 'string')
 			.map((answer) => normalizeDnsName(answer.data || ''));
@@ -248,7 +258,10 @@ export async function findCloudflareNameserver(hostname: string): Promise<{
 
 async function findMicrosoftOwnedIp(ips: string[]): Promise<MicrosoftIpMatch | null> {
 	for (const ip of ips) {
-		const response = await fetch(`${RDAP_IP_BASE}/${encodeURIComponent(ip)}`, { headers: { Accept: 'application/rdap+json, application/json' } });
+		const response = await fetch(`${RDAP_IP_BASE}/${encodeURIComponent(ip)}`, {
+			headers: { Accept: 'application/rdap+json, application/json' },
+			signal: requestTimeout(),
+		});
 		if (!response.ok) continue;
 		const data = await readJsonBody(response);
 		if (containsMicrosoftOwnership(data)) return { ip, rdap: data };
@@ -259,6 +272,7 @@ async function findMicrosoftOwnedIp(ips: string[]): Promise<MicrosoftIpMatch | n
 async function fetchCloudflareDomainRdap(domain: string): Promise<JsonValue> {
 	const response = await fetch(`${CLOUDFLARE_RDAP_DOMAIN_BASE}/${encodeURIComponent(domain)}`, {
 		headers: { Accept: 'application/rdap+json, application/json' },
+		signal: requestTimeout(),
 	});
 	const data = await readJsonBody(response);
 	if (!response.ok) return { http_status: response.status, error: response.statusText || `HTTP ${response.status}`, response: data };
@@ -267,6 +281,13 @@ async function fetchCloudflareDomainRdap(domain: string): Promise<JsonValue> {
 
 function isCloudflareNameserver(value: string): boolean {
 	return value.endsWith('.ns.cloudflare.com');
+}
+
+// A fresh signal per request: AbortSignal.timeout starts its clock at creation,
+// so sharing one across sequential calls would shrink the budget of each
+// later call.
+function requestTimeout(): AbortSignal {
+	return AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS);
 }
 
 const MICROSOFT_OWNERSHIP_REGEX = /\b(microsoft|msft|azure)\b/i;

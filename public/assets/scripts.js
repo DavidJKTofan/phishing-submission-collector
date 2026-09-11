@@ -87,7 +87,7 @@ function renderTurnstileWidget() {
 
 	hideTurnstileError();
 
-	const sitekey = elements.turnstileContainer.dataset.sitekey;
+	const sitekey = selectTurnstileSitekey(elements.turnstileContainer);
 	if (!sitekey) {
 		console.error('Missing data-sitekey on Turnstile container');
 		showTurnstileError('Security verification misconfigured.');
@@ -116,6 +116,25 @@ function renderTurnstileWidget() {
 		console.error('Error rendering Turnstile:', error);
 		showTurnstileError('Security verification failed to initialize. Please refresh the page.');
 	}
+}
+
+// Production renders the real widget (data-sitekey). Hostnames listed in
+// data-testing-hostnames (staging) render Cloudflare's always-pass testing
+// sitekey (data-testing-sitekey) so agents and browser checks can submit
+// without solving a challenge. The Worker only accepts the resulting dummy
+// token when it is deployed with the matching testing secret AND
+// TURNSTILE_ALLOW_TESTING_KEYS="true" (staging only), so this switch cannot
+// weaken production even if the hostname list were edited.
+function selectTurnstileSitekey(container) {
+	const { sitekey, testingSitekey, testingHostnames } = container.dataset;
+	const hostnames = (testingHostnames || '')
+		.split(',')
+		.map((hostname) => hostname.trim().toLowerCase())
+		.filter(Boolean);
+	if (testingSitekey && hostnames.includes(window.location.hostname.toLowerCase())) {
+		return testingSitekey;
+	}
+	return sitekey;
 }
 
 function handleTurnstileSuccess(token) {

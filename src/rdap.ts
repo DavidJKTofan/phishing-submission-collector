@@ -122,11 +122,15 @@ export function vcardValue(vcardArray: unknown, key: string): string | undefined
 	return undefined;
 }
 
-const ABUSE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Conservative ASCII charset (RFC 5322 atext minus the exotic symbols). The
+// value ends up in a `mailto:` href built by the frontend, so anything that
+// can start a mailto query (`?`, `&`, `#`) or a path (`/`) is rejected here —
+// an RDAP record must not be able to inject `?bcc=` into the reporter's email.
+const ABUSE_EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 // Format-only validation for an abuse email before it is surfaced as a
 // reporter-facing mailto. Rejects empty/oversized values and anything that is
-// not a syntactically plausible single address.
+// not a syntactically plausible single ASCII address.
 export function isValidAbuseEmail(value: unknown): value is string {
 	if (typeof value !== 'string') return false;
 	const trimmed = value.trim();

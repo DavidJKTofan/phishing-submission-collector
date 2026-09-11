@@ -317,9 +317,17 @@
 						</div>
 					</details>
 
-					<!-- Turnstile Widget -->
+					<!-- Turnstile Widget. data-sitekey is the production widget. On the hostnames
+					     listed in data-testing-hostnames (staging only) scripts.js renders Cloudflare's
+					     always-pass testing sitekey instead; the Worker accepts its dummy token only when
+					     deployed with the matching testing secret + TURNSTILE_ALLOW_TESTING_KEYS="true". -->
 					<div class="turnstile-wrapper">
-						<div id="turnstile-container" data-sitekey="0x4AAAAAAA1Q4zDSRdaSX7mZ"></div>
+						<div
+							id="turnstile-container"
+							data-sitekey="0x4AAAAAAA1Q4zDSRdaSX7mZ"
+							data-testing-sitekey="1x00000000000000000000AA"
+							data-testing-hostnames="report-staging.automatic-demo.com"
+						></div>
 						<div id="turnstile-error" class="turnstile-error" role="alert" aria-live="polite"></div>
 					</div>
 					<input type="hidden" id="cf-turnstile-response" name="cf-turnstile-response" />
@@ -353,7 +361,10 @@
 				<div class="footer-section">
 					<p class="footer-note">
 						The creators and operators of this platform shall not be held liable for any damages or consequences arising from its use. All
-						submissions are logged and may be used for research purposes.
+						submissions are logged and may be used for research purposes. Information you submit — including the reported URL, your name,
+						and your description — may be shared with or forwarded to third-party security scanners and abuse-reporting providers (for
+						example urlscan.io, VirusTotal, Cloudflare, Netcraft, and Microsoft) to analyze the threat and request a takedown. Do not include
+						personal or confidential information you are not willing to share with those providers.
 					</p>
 				</div>
 			</div>

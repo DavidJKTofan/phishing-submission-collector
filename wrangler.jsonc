@@ -2,8 +2,11 @@
 	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "phish-submission-collector",
 	"main": "src/index.ts",
-	"compatibility_date": "2026-06-12",
-	"compatibility_flags": ["nodejs_compat"],
+	// Bump periodically (Workers best practices). Node.js compatibility
+	// (`nodejs_compat` + `nodejs_compat_v2`) is enabled by default for dates
+	// >= 2026-08-04, so the flag is no longer declared; do not lower this date
+	// without adding "nodejs_compat" back to compatibility_flags.
+	"compatibility_date": "2026-09-10",
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS"
@@ -63,6 +66,11 @@
 			"vars": {
 				"ALLOWED_ORIGINS": "https://report-staging.automatic-demo.com",
 				"TURNSTILE_EXPECTED_HOSTNAMES": "report-staging.automatic-demo.com",
+				// Staging runs Turnstile's always-pass testing keys (sitekey in public/index.html,
+				// secret via `wrangler secret put TURNSTILE_SECRET_KEY --env staging`) so agents can
+				// submit through the form. The Worker refuses a testing secret without this opt-in.
+				// NEVER add this var to production.
+				"TURNSTILE_ALLOW_TESTING_KEYS": "true",
 				"CLOUDFLARE_GATEWAY_HOSTNAME_LIST_NAME": "0_PHISHING_Hostnames_STAGING",
 				"REPORTER_NAME": "PRIVATE"
 			},

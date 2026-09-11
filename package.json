@@ -5,29 +5,30 @@
   "scripts": {
     "cf-typegen": "wrangler types --config wrangler.jsonc",
     "check": "npm run typecheck && tsc -p tests/tsconfig.json --noEmit && node --check public/assets/scripts.js && node --check public/assets/report.js && node --check public/assets/theme.js",
+    "check:startup": "wrangler check startup --config wrangler.jsonc --env \"\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "migrate": "wrangler d1 migrations apply reports_db --remote --config wrangler.jsonc",
+    "migrate": "wrangler d1 migrations apply reports_db --remote --config wrangler.jsonc --env \"\"",
     "migrate:staging": "wrangler d1 migrations apply reports_db_staging --remote --config wrangler.jsonc --env staging",
-    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "deploy": "wrangler deploy --config wrangler.jsonc --env \"\"",
     "deploy:staging": "wrangler deploy --config wrangler.jsonc --env staging",
-    "deploy:dry-run": "wrangler deploy --dry-run --config wrangler.jsonc",
+    "deploy:dry-run": "wrangler deploy --dry-run --config wrangler.jsonc --env \"\"",
     "deploy:staging:dry-run": "wrangler deploy --dry-run --config wrangler.jsonc --env staging",
-    "dev": "wrangler dev --config wrangler.jsonc",
+    "dev": "wrangler dev --config wrangler.jsonc --env \"\"",
     "dev:staging": "wrangler dev --config wrangler.jsonc --env staging",
-    "start": "wrangler dev --config wrangler.jsonc",
+    "start": "wrangler dev --config wrangler.jsonc --env \"\"",
     "typecheck": "npm run cf-typegen && tsc --noEmit"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.16.18",
-    "@types/node": "^26.0.0",
-    "typescript": "^6.0.3",
-    "vitest": "~4.1.9",
-    "wrangler": "^4.103.0"
+    "@cloudflare/vitest-plugin": "^1.1.7",
+    "@types/node": "^26.5.1",
+    "typescript": "^7.0.2",
+    "vitest": "~4.1.11",
+    "wrangler": "^4.131.0"
   },
   "allowScripts": {
     "fsevents@2.3.3": true,
     "esbuild@0.28.1": true,
-    "workerd@1.20260617.1": true
+    "workerd@1.20260910.1": true
   }
 }

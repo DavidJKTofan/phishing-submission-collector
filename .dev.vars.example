@@ -3,6 +3,10 @@
 # In production these are read from the Cloudflare dashboard secrets — do NOT
 # put them in wrangler.jsonc.
 
+# Real secret for the production widget. For local dev you can instead use
+# Turnstile's always-pass testing secret together with
+# TURNSTILE_ALLOW_TESTING_KEYS="true" and `localhost` added to
+# data-testing-hostnames in public/index.html (staging does this; see README).
 TURNSTILE_SECRET_KEY=""
 URLSCAN_API_KEY=""
 VIRUSTOTAL_API_KEY=""
