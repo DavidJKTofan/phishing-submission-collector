@@ -4,6 +4,10 @@
 import { errorMessage, isRecord, isTimeoutOrAbortError, parseCsv } from './shared';
 
 const SITEVERIFY_TIMEOUT_MS = 5_000;
+// Pause before the single retry so a transient siteverify failure has a moment
+// to clear (the docs recommend backoff). One retry keeps the worst case bounded
+// at roughly 2 × SITEVERIFY_TIMEOUT_MS + this delay.
+const SITEVERIFY_RETRY_DELAY_MS = 300;
 export const TURNSTILE_TOKEN_MAX_LENGTH = 2_048;
 // Must match the `action` passed to turnstile.render() in public/assets/scripts.js.
 const TURNSTILE_ACTION = 'submit-report';
@@ -86,9 +90,12 @@ export async function validateTurnstile(token: string, ip: string | null, env: T
 	const idempotencyKey = crypto.randomUUID();
 	let attempt = await requestSiteverify(env.TURNSTILE_SECRET_KEY, token, ip, idempotencyKey);
 	if (!attempt.outcome && attempt.retryable) {
+		await scheduler.wait(SITEVERIFY_RETRY_DELAY_MS);
 		attempt = await requestSiteverify(env.TURNSTILE_SECRET_KEY, token, ip, idempotencyKey);
 	}
-	if (!attempt.outcome) return { success: false, error: attempt.error };
+	if (!attempt.outcome) {
+		return attempt.errorCodes ? { success: false, error: attempt.error, errorCodes: attempt.errorCodes } : { success: false, error: attempt.error };
+	}
 
 	const outcome = attempt.outcome;
 
@@ -109,6 +116,7 @@ export async function validateTurnstile(token: string, ip: string | null, env: T
 				resultWithTestingKey: isRecord(outcome.metadata) && outcome.metadata.result_with_testing_key === true,
 				hostname: outcome.hostname,
 				challengeTs: outcome.challenge_ts,
+				tokenAgeMs: tokenAgeMs(outcome.challenge_ts),
 				timestamp: new Date().toISOString(),
 			})
 		);
@@ -138,6 +146,9 @@ export async function validateTurnstile(token: string, ip: string | null, env: T
 			hostname: outcome.hostname,
 			action: outcome.action,
 			challengeTs: outcome.challenge_ts,
+			// Siteverify already rejects tokens older than 300 s; the age is
+			// recorded so slow form completions show up in the logs.
+			tokenAgeMs: tokenAgeMs(outcome.challenge_ts),
 			timestamp: new Date().toISOString(),
 		})
 	);
@@ -145,7 +156,9 @@ export async function validateTurnstile(token: string, ip: string | null, env: T
 	return { success: true, testingKey: false, hostname: outcome.hostname, action: outcome.action, challengeTs: outcome.challenge_ts };
 }
 
-type SiteverifyAttempt = { outcome: TurnstileSiteverifyResponse; error?: undefined } | { outcome?: undefined; error: string; retryable: boolean };
+type SiteverifyAttempt =
+	| { outcome: TurnstileSiteverifyResponse; error?: undefined }
+	| { outcome?: undefined; error: string; errorCodes?: string[]; retryable: boolean };
 
 async function requestSiteverify(secretKey: string, token: string, ip: string | null, idempotencyKey: string): Promise<SiteverifyAttempt> {
 	try {
@@ -171,12 +184,25 @@ async function requestSiteverify(secretKey: string, token: string, ip: string | 
 			console.error('Turnstile siteverify returned a malformed response');
 			return { error: 'Malformed siteverify response', retryable: false };
 		}
+		// Siteverify reports its own transient failures in-band (HTTP 200,
+		// success:false, error-codes ["internal-error"]); the docs say to retry
+		// rather than treat that as a rejected token.
+		if (!outcome.success && outcome['error-codes']?.includes('internal-error')) {
+			console.error('Turnstile siteverify internal-error');
+			return { error: 'siteverify internal-error', errorCodes: outcome['error-codes'], retryable: true };
+		}
 		return { outcome };
 	} catch (error) {
 		const reason = isTimeoutOrAbortError(error) ? `timeout after ${SITEVERIFY_TIMEOUT_MS}ms` : errorMessage(error);
 		console.error('Turnstile verification error:', reason);
 		return { error: reason, retryable: true };
 	}
+}
+
+function tokenAgeMs(challengeTs: string | undefined): number | undefined {
+	if (!challengeTs) return undefined;
+	const issuedAt = Date.parse(challengeTs);
+	return Number.isNaN(issuedAt) ? undefined : Date.now() - issuedAt;
 }
 
 function isTurnstileSiteverifyResponse(value: unknown): value is TurnstileSiteverifyResponse {

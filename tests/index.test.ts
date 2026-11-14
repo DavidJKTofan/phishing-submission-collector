@@ -44,6 +44,30 @@ it('validates submission fields before any external call', async () => {
 	expect(body.code).toBe('INVALID_NAME');
 });
 
+it('fails closed on Turnstile without storing the report', async () => {
+	// A fully valid body reaches validateTurnstile. The test env has no usable
+	// TURNSTILE_SECRET_KEY (and a real one would reject this token), so the
+	// Worker must answer with the generic error and never write to D1.
+	const hostname = 'turnstile-fail-closed.bad.example';
+	const response = await SELF.fetch('https://example.com/submit', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Origin: ALLOWED_ORIGIN },
+		body: JSON.stringify({
+			name: 'Test Reporter',
+			category: 'Phishing',
+			source: 'Email',
+			url: `https://${hostname}/login`,
+			'cf-turnstile-response': 'not-a-real-turnstile-token',
+		}),
+	});
+	expect(response.status).toBe(400);
+	const body = (await response.json()) as { error?: string; code?: string };
+	expect(body).toEqual({ error: 'Invalid security verification', code: 'INVALID_TURNSTILE' });
+
+	const stored = await env.DB.prepare('SELECT COUNT(*) AS n FROM reports_v2 WHERE normalized_hostname = ?').bind(hostname).first<{ n: number }>();
+	expect(stored?.n).toBe(0);
+});
+
 it('rejects preflight requests from disallowed origins', async () => {
 	const response = await SELF.fetch('https://example.com/submit', {
 		method: 'OPTIONS',
