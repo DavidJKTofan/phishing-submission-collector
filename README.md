@@ -100,7 +100,7 @@ project/
 │       └── styles.css          # Frontend stylesheet
 │
 ├── tests/                      # Vitest suites (run in workerd)
-│   ├── *.test.ts               # approval, hostname, provider-reporting, abuse-contacts, turnstile, index
+│   ├── *.test.ts               # approval, hostname, provider-reporting, abuse-contacts, turnstile, index, workflow
 │   ├── apply-migrations.ts     # Setup file: applies D1 migrations to the test database
 │   └── tsconfig.json           # Test-only TS config
 │
@@ -153,7 +153,7 @@ IPQS_API_KEY="<YOUR_API_KEY_HERE>"
 REPORTER_EMAIL="<YOUR_ABUSE_REPORT_CONTACT_EMAIL>"
 # Optional provider reporting identity/config:
 REPORTER_ORG="<YOUR_ORGANIZATION>"
-REPORTER_COUNTRY="US"
+REPORTER_COUNTRY="US"   # 2-letter ISO 3166-1 alpha-2 code (the Abuse Reports API rejects anything else; other values are dropped with a warning)
 REPORTER_PHONE="<YOUR_CONTACT_PHONE>"
 NETCRAFT_SOURCE_UUID="<OPTIONAL_NETCRAFT_SOURCE_UUID>"
 CLOUDFLARE_ACCOUNT_ID="<YOUR_CLOUDFLARE_ACCOUNT_ID>"
@@ -258,12 +258,13 @@ Duplicate handling is append-first: the Workflow always attempts the `PATCH` and
 
 ## App Security
 
-- **Cloudflare Turnstile** — required to submit. The sitekey is set as `data-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); the secret is verified server-side with HTTP `response.ok` checking, a shared idempotency key reused across one bounded retry (on `5xx`/network errors), a 5 s timeout via `AbortSignal.timeout()`, response-shape validation, strict action validation (`submit-report`), and hostname validation (`TURNSTILE_EXPECTED_HOSTNAMES`). All five Turnstile callbacks (`callback`, `expired-callback`, `error-callback`, `timeout-callback`, `unsupported-callback`) are wired with retry/reset logic. Validation lives in [src/turnstile.ts](src/turnstile.ts). Staging runs Cloudflare's [testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) so automated checks can submit; because a testing secret accepts *any* token, the Worker only honors one when `TURNSTILE_ALLOW_TESTING_KEYS="true"` is also set, and otherwise rejects every submission (fail closed). See [Staging deployment](#staging-deployment).
+- **Cloudflare Turnstile** — required to submit. The sitekey is set as `data-sitekey` on `#turnstile-container` in [public/index.html](public/index.html); the secret is verified server-side with HTTP `response.ok` checking, a shared idempotency key reused across one bounded retry (on `5xx`/network errors), a 5 s timeout via `AbortSignal.timeout()`, response-shape validation, strict action validation (`submit-report`), and hostname validation (`TURNSTILE_EXPECTED_HOSTNAMES`). All five Turnstile callbacks (`callback`, `expired-callback`, `error-callback`, `timeout-callback`, `unsupported-callback`) are wired with retry/reset logic. Validation lives in [src/turnstile.ts](src/turnstile.ts). Staging runs Cloudflare's [testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) so automated checks can submit; because a testing secret accepts *any* token, the Worker only honors one when `TURNSTILE_ALLOW_TESTING_KEYS="true"` is also set, and otherwise rejects every submission (fail closed). See [Staging deployment](#staging-deployment). [Turnstile Spin](https://developers.cloudflare.com/turnstile/spin/) was evaluated (2026-11): it is a widget *setup* flow (dashboard, `wrangler turnstile widget create`, or an agent prompt) whose generated server code performs exactly these checks, so it brings no runtime change for this project.
 - **CORS** — exact-origin allowlist driven by `ALLOWED_ORIGINS` with a `Vary: Origin` header. Same-origin requests are always allowed.
 - **Security response headers** — every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, `Strict-Transport-Security`, and a restrictive `Permissions-Policy`. Static pages get their `Content-Security-Policy` from `public/_headers` (authoritative under asset-first routing); the submission page (`/`) needs no `style-src 'unsafe-inline'`, while `/report` keeps it for its inline `<style>`/`style=""`. The Turnstile script/iframe are allowed only where needed. All CSPs set `object-src 'none'` and `upgrade-insecure-requests`.
 - **Body size guard** — `/submit` rejects declared or streamed bodies over 50,000 bytes (`413`).
-- **Input validation** — server-side URL/domain parsing normalizes the exact hostname, rejects IPs/localhost/wildcards/invalid labels, and keeps category and source restricted to fixed enums.
-- **D1 prepared statements** — all reads/writes use `?` placeholders; reads validate UUIDv4 format before querying; transient D1 write failures are retried with bounded jittered backoff.
+- **API responses are never cached** — every JSON response carries `Cache-Control: no-store`, because report state (approval, blocklist, provider outcomes) changes over time.
+- **Input validation** — server-side URL/domain parsing normalizes the exact hostname, rejects IPs/localhost/wildcards/invalid labels, and keeps category and source restricted to fixed enums. Name and description lengths are counted in Unicode code points (as SQLite's `length()` does) so the server check and the D1 `CHECK` constraints always agree — an emoji-only name is rejected up front instead of failing the INSERT after the scanners ran.
+- **D1 prepared statements** — all reads/writes use `?` placeholders; reads validate UUIDv4 format before querying; the two `/api/report/:id` reads go out as one `db.batch`; transient D1 write failures are retried with bounded jittered backoff.
 
 ## Accessibility & UX
 
@@ -296,7 +297,7 @@ For deployment guidance, see the [Workers static assets docs](https://developers
 npm run deploy
 ```
 
-`wrangler.jsonc` disables `workers.dev`; keep the production Custom Domain or route attached in Cloudflare, or add it to `wrangler.jsonc` with `routes` once the zone ownership details are confirmed.
+`wrangler.jsonc` disables `workers.dev` and declares the production Custom Domain (`report.automatic-demo.com`, `custom_domain: true`) under `routes`, so `npm run deploy` keeps it attached; staging declares its own under `env.staging.routes`. Source maps are uploaded with every deploy (`upload_source_maps: true`) so stack traces in Workers Logs point at `src/`, and observability captures every invocation (`observability.logs` / `traces` at a sampling rate of `1`) — lower the rates if volume or billing ever makes that necessary.
 
 ### Staging deployment
 
@@ -446,6 +447,8 @@ npm run check:startup
 
 Tests are written in TypeScript and run inside the Workers runtime (workerd) via [`@cloudflare/vitest-plugin`](https://developers.cloudflare.com/workers/testing/vitest-integration/), using the bindings declared in `wrangler.jsonc` (see `vitest.config.mts`). `tests/index.test.ts` exercises the real `fetch` handler through the `exports.default` loopback stub from `cloudflare:workers`. The project's D1 migrations are applied to the ephemeral test database (via `tests/apply-migrations.ts`), so read-path tests run against the real schema — `index.test.ts` seeds a row and reads it back through `/api/report/:id`, guarding the read projection against schema drift.
 
+`tests/workflow.test.ts` drives the real `PhishingHostnameWorkflow` with the plugin's [Workflows introspection API](https://developers.cloudflare.com/workers/testing/vitest-integration/test-apis/) (`introspectWorkflowInstance` from `cloudflare:test`): the steps that call external services (Discord, the Gateway list, the reporting providers) are mocked by step name, the D1 steps run for real, and the approve / deny / expired / failed paths are asserted on `reports_v2` and `provider_reports`. The `uncaught exception` lines miniflare prints for the mocked step errors are expected.
+
 ### End-to-end approval flow
 
 Run the full flow against a deployed Worker or a public tunnel. Discord cannot call a private localhost URL.
@@ -495,8 +498,9 @@ Its **Check Report Status** view (which looks up a report by ID via `/api/report
 ## Known Limitations / Future Work
 
 - **Workflow approval observability** — approval status is stored in D1, but there is no admin dashboard yet for pending/expired approvals.
-- **`/api/report/:id` is publicly readable by UUID** — acceptable given UUIDv4 entropy, but no auth. It returns a minimal projection: internal/PII fields (`approval_actor`, `workflow_instance_id`, `cloudflare_list_error`, and provider `response_json`) are not exposed.
-- **Rate limiting** — deploy should include a Cloudflare Rate Limiting Rule for `/submit`; keep this outside app code when possible.
+- **`/api/report/:id` is publicly readable by UUID** — acceptable given UUIDv4 entropy, but no auth. It returns a minimal projection: the submitter-provided `name` and `description` are included by design (the status page shows them), while internal fields (`approval_actor`, `workflow_instance_id`, `approval_error`, `cloudflare_list_error`, and provider `response_json`) are not exposed.
+- **Rate limiting** — decided (2026-11): a zone **WAF Rate Limiting rule** on `POST /submit`, outside this repo; the Workers Rate Limiting binding was considered and declined. Suggested rule: match `http.request.method eq "POST" and http.request.uri.path eq "/submit"`, count by IP, 5 requests per 60 s, action Block or Managed Challenge. Keep `/discord/interactions` out of it, and exclude the Access service-token requests on staging if `scripts/staging-check.sh --submit` is ever run in a loop.
+- **`report.html` inline styles** — the `/report` CSP still needs `style-src 'unsafe-inline'` for the inline `<style>` block and `style=""` attributes; moving them into `assets/report.css` (planned as a separate change) lets it be dropped, as `index.html` already did.
 - **Additional reporting providers** — candidates for new post-approval Workflow steps include abuse.ch URLhaus, the APWG eCrime eXchange, PhishTank, and Spamhaus. Google Web Risk Submission API would replace the manual Google CTA if access is granted. (RDAP-derived registrar/host abuse contacts are already surfaced to the reporter at submission time — see [Scanner & Reporting APIs](#scanner--reporting-apis); a future step could optionally *auto-email* them after approval rather than leaving it reporter-driven.)
 - **Discord approval flow enhancements** — richer embeds showing inline scanner verdicts/risk scores, a Deny-reason modal, approver role/RBAC restrictions, editing the original message in place with the final outcome (added/duplicate + per-provider results), pre-expiry reminder pings, and a slash command to look up report status from Discord.
 

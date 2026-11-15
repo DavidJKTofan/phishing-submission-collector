@@ -22,6 +22,7 @@ import {
 	MissingConfigError,
 	ProviderAuthError,
 	SECURITY_HEADERS,
+	codePointLength,
 	errorMessage,
 	isRecord,
 	isTimeoutOrAbortError,
@@ -117,11 +118,8 @@ export class PhishingHostnameWorkflow extends WorkflowEntrypoint<Env, PhishingHo
 				{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: DISCORD_APPROVAL_SEND_TIMEOUT },
 				// WorkflowStepContext.attempt makes retries idempotent: only a retry
 				// (where the message may already have been posted but the response
-				// was lost) pays for the duplicate check. The parameter is optional
-				// so the callback stays compatible with runtimes/types that predate
-				// the step context.
-				async (stepContext?: { attempt?: number }) =>
-					nonRetryableOnConfigError(() => sendDiscordApprovalMessage(this.env, report, event.instanceId, (stepContext?.attempt ?? 1) > 1))
+				// was lost) pays for the duplicate check.
+				async (ctx) => nonRetryableOnConfigError(() => sendDiscordApprovalMessage(this.env, report, event.instanceId, ctx.attempt > 1))
 			);
 		} catch (error) {
 			const message = errorMessage(error);
@@ -279,11 +277,13 @@ async function nonRetryableOnConfigError<T>(action: () => Promise<T>): Promise<T
 	}
 }
 
-// The runtime does not expose a dedicated error class for waitForEvent
-// timeouts, so classify by name/message and treat everything else as a
-// workflow failure rather than a silent "expired".
+// The runtime rejects a timed-out waitForEvent with a WorkflowTimeoutError
+// ("Execution timed out after <ms>ms"; pinned by tests/workflow.test.ts). The
+// name check is authoritative; the message heuristic stays as a fallback so an
+// older runtime still records "expired" rather than a spurious failure.
 function isWaitForEventTimeout(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
+	if (error.name === 'WorkflowTimeoutError') return true;
 	const text = `${error.name} ${error.message}`.toLowerCase();
 	return text.includes('timeout') || text.includes('timed out') || text.includes('expired');
 }
@@ -587,7 +587,11 @@ function validateFormData(data: unknown): SubmissionData {
 	const description = stringField(data.description).trim();
 	const turnstileToken = stringField(data['cf-turnstile-response']).trim();
 
-	if (!name || name.length < 2 || name.length > 100) {
+	// Count code points, not UTF-16 units: the D1 CHECK constraints use SQLite
+	// length(), which counts characters. A unit-based check lets an emoji-only
+	// name through, the scanner APIs run, and the INSERT then fails with a 503.
+	const nameLength = codePointLength(name);
+	if (!name || nameLength < 2 || nameLength > 100) {
 		throw new HttpError(400, 'Name must be between 2 and 100 characters', 'INVALID_NAME');
 	}
 	if (!isAllowedCategory(category)) {
@@ -610,7 +614,7 @@ function validateFormData(data: unknown): SubmissionData {
 
 	const scanUrl = buildScanUrl(url, normalizedHostname);
 
-	if (description.length > 500) {
+	if (codePointLength(description) > 500) {
 		throw new HttpError(400, 'Description must be 500 characters or less', 'INVALID_DESCRIPTION');
 	}
 	if (!turnstileToken || turnstileToken.length > TURNSTILE_TOKEN_MAX_LENGTH) {
@@ -916,37 +920,28 @@ function delay(ms: number): Promise<void> {
 const REPORT_COLUMNS =
 	'id, name, category, source, url, description, urlscan_uuid, virustotal_scan_id, ipqs_scan, cloudflare_scan_uuid, api_errors, submission_success, timestamp, normalized_hostname, approval_status, approval_decided_at, cloudflare_list_status';
 
+// Public projection of provider_reports. response_json holds raw upstream/RDAP
+// payloads (possible registrant data) and is intentionally omitted.
+const PROVIDER_REPORT_COLUMNS = 'provider, status, eligibility_reason, reference_id, http_status, error, created_at, last_updated';
+
 async function getReportFromDB(db: D1Database, id: string | undefined): Promise<Record<string, unknown> | null> {
 	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 	if (!id || !uuidRegex.test(id)) throw new HttpError(400, 'Invalid Report ID format', 'INVALID_REPORT_ID');
 
 	try {
-		const report = await db.prepare(`SELECT ${REPORT_COLUMNS} FROM reports_v2 WHERE id = ?`).bind(id).first<Record<string, unknown>>();
+		// One D1 round trip for both reads (D1 best practices: batch related
+		// statements). provider_reports is created by the baseline migration, so
+		// no fallback for a missing table is needed.
+		const [reportResult, providerResult] = await db.batch<Record<string, unknown>>([
+			db.prepare(`SELECT ${REPORT_COLUMNS} FROM reports_v2 WHERE id = ?`).bind(id),
+			db.prepare(`SELECT ${PROVIDER_REPORT_COLUMNS} FROM provider_reports WHERE report_id = ? ORDER BY provider`).bind(id),
+		]);
+		const report = reportResult?.results[0];
 		if (!report) return null;
-		return { ...report, provider_reports: await getProviderReportsFromDB(db, id) };
+		return { ...report, provider_reports: providerResult?.results ?? [] };
 	} catch (error) {
 		console.error('Database read error:', errorMessage(error));
 		throw new HttpError(500, 'Database read failed', 'DB_READ_FAILED');
-	}
-}
-
-async function getProviderReportsFromDB(db: D1Database, reportId: string): Promise<Array<Record<string, unknown>>> {
-	try {
-		// response_json holds raw upstream/RDAP payloads (possible registrant data)
-		// and is intentionally omitted from this public projection.
-		const rows = await db
-			.prepare(
-				`SELECT provider, status, eligibility_reason, reference_id, http_status, error, created_at, last_updated
-				 FROM provider_reports
-				 WHERE report_id = ?
-				 ORDER BY provider`
-			)
-			.bind(reportId)
-			.all<Record<string, unknown>>();
-		return rows.results || [];
-	} catch (error) {
-		if (errorMessage(error).includes('no such table: provider_reports')) return [];
-		throw error;
 	}
 }
 

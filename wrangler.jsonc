@@ -6,13 +6,25 @@
 	// (`nodejs_compat` + `nodejs_compat_v2`) is enabled by default for dates
 	// >= 2026-08-04, so the flag is no longer declared; do not lower this date
 	// without adding "nodejs_compat" back to compatibility_flags.
-	"compatibility_date": "2026-09-10",
+	"compatibility_date": "2026-11-13",
+	// Workers best practices: upload source maps so stack traces in Workers Logs
+	// point at the TypeScript source, not the bundle.
+	"upload_source_maps": true,
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS"
 	},
 	"workers_dev": false,
 	"preview_urls": false,
+	// Production is served from this Custom Domain (the Worker is the origin).
+	// Declared here for parity with staging; wrangler adopts the already-attached
+	// domain, so a deploy is a no-op for DNS.
+	"routes": [
+		{
+			"pattern": "report.automatic-demo.com",
+			"custom_domain": true
+		}
+	],
 	"vars": {
 		"ALLOWED_ORIGINS": "https://report.automatic-demo.com",
 		"TURNSTILE_EXPECTED_HOSTNAMES": "report.automatic-demo.com",
@@ -48,9 +60,20 @@
 			"migrations_dir": "migrations"
 		}
 	],
+	// Low-volume security tool: capture every invocation so any individual
+	// submission or approval can be debugged from Workers Logs / Traces. Lower
+	// the sampling rates if volume or billing ever makes that necessary.
 	"observability": {
 		"enabled": true,
-		"head_sampling_rate": 0.1
+		"logs": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"invocation_logs": true
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 1
+		}
 	},
 	"env": {
 		"staging": {
