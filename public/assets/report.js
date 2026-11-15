@@ -9,6 +9,12 @@ document.addEventListener('DOMContentLoaded', function () {
 		e.preventDefault();
 		const reportId = reportIdInput.value.trim();
 
+		// Clear the previous lookup before validating, so a stale result never
+		// stays visible under a new validation error.
+		resultContainer.replaceChildren();
+		errorMessage.style.display = 'none';
+		resultContainer.style.display = 'none';
+
 		if (!reportId) {
 			showError('Please enter a Report ID.');
 			return;
@@ -17,10 +23,6 @@ document.addEventListener('DOMContentLoaded', function () {
 			showError('Report ID must be a valid UUID.');
 			return;
 		}
-
-		resultContainer.replaceChildren();
-		errorMessage.style.display = 'none';
-		resultContainer.style.display = 'none';
 
 		const submitButton = reportForm.querySelector('button');
 		submitButton.disabled = true;
