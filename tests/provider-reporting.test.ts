@@ -80,6 +80,23 @@ test('submits Cloudflare abuse reports only when Cloudflare nameservers match', 
 	assert.equal(body.act, 'abuse_phishing');
 	assert.equal(body.urls, 'https://login.bad.example/path');
 	assert.equal(body.host_notification, 'send-anon');
+	assert.equal(body.reported_country, 'US');
+});
+
+test('normalizes REPORTER_COUNTRY to a 2-letter code and drops anything else', async () => {
+	// The Abuse Reports API requires reported_country to be exactly 2 characters;
+	// a bad value must not fail the whole step (the field is optional).
+	for (const [configured, expected] of [
+		['us', 'US'],
+		[' de ', 'DE'],
+		['USA', undefined],
+		['', undefined],
+	] as const) {
+		const calls = mockCloudflareAbuseFlow();
+		await reportToCloudflareAbuse(makeEnv({ REPORTER_COUNTRY: configured }), makeReport());
+		const body = JSON.parse(String(calls[calls.length - 1].init.body));
+		assert.equal(body.reported_country, expected, `REPORTER_COUNTRY=${JSON.stringify(configured)}`);
+	}
 });
 
 test('classifies a Cloudflare abuse auth failure as a terminal ProviderAuthError', async () => {
@@ -273,6 +290,24 @@ function makeReport(overrides: Partial<PhishingHostnameWorkflowParams> = {}): Ph
 		cloudflareScanUuid: 'cfscan-1',
 		...overrides,
 	};
+}
+
+// Cloudflare-hosted domain whose abuse report is accepted: DoH NS lookup finds a
+// Cloudflare nameserver on the parent domain, RDAP answers, the API returns an id.
+function mockCloudflareAbuseFlow(): FetchCall[] {
+	return mockFetch((url) => {
+		const requestUrl = new URL(url);
+		if (requestUrl.hostname === 'cloudflare-dns.com') {
+			return requestUrl.searchParams.get('name') === 'bad.example'
+				? jsonResponse({ Status: 0, Answer: [{ type: 2, data: 'bob.ns.cloudflare.com.' }] })
+				: jsonResponse({ Status: 0 });
+		}
+		if (url === 'https://rdap.cloudflare.com/rdap/v1/domain/bad.example') return jsonResponse({ objectClassName: 'domain' });
+		if (url === 'https://api.cloudflare.com/client/v4/accounts/account-1/abuse-reports/abuse_phishing') {
+			return jsonResponse({ abuse_rand: 'cf-report-1', request: { act: 'abuse_phishing' }, result: 'success' });
+		}
+		throw new Error(`unexpected fetch ${url}`);
+	});
 }
 
 function mockFetch(handler: (url: string, init: RequestInit, index: number) => Response | Promise<Response>): FetchCall[] {

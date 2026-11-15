@@ -59,7 +59,7 @@ function validateHostname(hostname: string): void {
 	if (hostname.startsWith('*.') || hostname.includes('*')) {
 		throw new HostnameNormalizationError('Wildcard hostnames are not allowed');
 	}
-	if (hostname.includes(':') || IPV4_REGEX.test(hostname) || isIpv4MappedHostname(hostname)) {
+	if (hostname.includes(':') || IPV4_REGEX.test(hostname)) {
 		throw new HostnameNormalizationError('IP addresses are not allowed');
 	}
 
@@ -67,12 +67,4 @@ function validateHostname(hostname: string): void {
 	if (labels.length < 2 || labels.some((label) => label.length === 0 || label.length > MAX_LABEL_LENGTH || !LABEL_REGEX.test(label))) {
 		throw new HostnameNormalizationError('Invalid hostname label');
 	}
-}
-
-function isIpv4MappedHostname(hostname: string): boolean {
-	if (!IPV4_REGEX.test(hostname)) return false;
-	return hostname.split('.').every((part) => {
-		const value = Number(part);
-		return Number.isInteger(value) && value >= 0 && value <= 255;
-	});
 }

@@ -345,9 +345,21 @@ function requireReporterIdentity(env: ProviderReportingEnv): ReporterIdentity {
 		email: requireConfig(env.REPORTER_EMAIL, 'REPORTER_EMAIL'),
 		name: requireConfig(env.REPORTER_NAME, 'REPORTER_NAME'),
 		org: env.REPORTER_ORG || undefined,
-		country: env.REPORTER_COUNTRY || undefined,
+		country: normalizeReporterCountry(env.REPORTER_COUNTRY),
 		phone: env.REPORTER_PHONE || undefined,
 	};
+}
+
+// The Cloudflare Abuse Reports API rejects `reported_country` unless it is
+// exactly two characters (ISO 3166-1 alpha-2). The field is optional, so a
+// misconfigured secret is dropped with a warning instead of failing the whole
+// Cloudflare Abuse step.
+function normalizeReporterCountry(value: string | undefined): string | undefined {
+	const trimmed = value?.trim().toUpperCase();
+	if (!trimmed) return undefined;
+	if (/^[A-Z]{2}$/.test(trimmed)) return trimmed;
+	console.warn(JSON.stringify({ event: 'reporter_country_ignored', reason: 'REPORTER_COUNTRY must be a 2-letter ISO 3166-1 alpha-2 code' }));
+	return undefined;
 }
 
 function buildEvidenceNotes(report: PhishingHostnameWorkflowParams): string {

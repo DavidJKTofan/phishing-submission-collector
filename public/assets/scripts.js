@@ -220,7 +220,7 @@ function setupFormValidation() {
 	const descriptionHint = document.getElementById('description-hint');
 
 	descriptionInput.addEventListener('input', function () {
-		const remaining = 500 - this.value.length;
+		const remaining = 500 - codePointLength(this.value);
 		if (remaining < 0) {
 			descriptionHint.textContent = `${Math.abs(remaining)} characters over limit`;
 			descriptionHint.style.color = 'var(--danger)';
@@ -241,6 +241,12 @@ function setupFormValidation() {
 		field.addEventListener('input', () => clearFieldError(fieldId));
 		field.addEventListener('change', () => clearFieldError(fieldId));
 	});
+}
+
+// Count Unicode code points, matching the server's validation and the D1 CHECK
+// constraints (SQLite length() counts characters, not UTF-16 code units).
+function codePointLength(value) {
+	return Array.from(value).length;
 }
 
 function isValidUrlOrHostname(value) {
@@ -274,10 +280,10 @@ function validateField(fieldId) {
 			if (!value) {
 				errorMessage = 'Name is required';
 				isValid = false;
-			} else if (value.length < 2) {
+			} else if (codePointLength(value) < 2) {
 				errorMessage = 'Name must be at least 2 characters';
 				isValid = false;
-			} else if (value.length > 100) {
+			} else if (codePointLength(value) > 100) {
 				errorMessage = 'Name must be 100 characters or less';
 				isValid = false;
 			}
@@ -328,7 +334,7 @@ function validateForm() {
 	});
 
 	const description = document.getElementById('description').value;
-	if (description.length > 500) {
+	if (codePointLength(description) > 500) {
 		showFieldError('description', 'Description must be 500 characters or less');
 		document.getElementById('description').classList.add('error');
 		firstInvalidField = firstInvalidField || 'description';

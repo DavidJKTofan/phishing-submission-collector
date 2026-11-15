@@ -25,11 +25,15 @@ export class HttpError extends Error {
 	}
 }
 
+// API responses are per-report state that changes over time (approval,
+// blocklist, provider outcomes), so a browser or intermediary must never cache
+// them. Callers can still override the header through extraHeaders.
 export function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
 	return new Response(JSON.stringify(body), {
 		status,
 		headers: {
 			'Content-Type': 'application/json; charset=utf-8',
+			'Cache-Control': 'no-store',
 			...SECURITY_HEADERS,
 			...extraHeaders,
 		},
@@ -125,6 +129,15 @@ export function parseCsv(value: string | undefined): string[] {
 		.split(',')
 		.map((item) => item.trim())
 		.filter(Boolean);
+}
+
+// Length in Unicode code points. SQLite's length() counts characters, not the
+// UTF-16 code units JS String.length reports, and the D1 CHECK constraints on
+// reports_v2 use length(). Input validation must count the same way, otherwise
+// an emoji-only name ("😀" is 1 character but 2 code units) passes the server
+// check and fails the INSERT instead.
+export function codePointLength(value: string): number {
+	return [...value].length;
 }
 
 // AbortSignal.timeout rejects with a DOMException named TimeoutError;
