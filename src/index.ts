@@ -33,10 +33,13 @@ import {
 } from './shared';
 import { TURNSTILE_TOKEN_MAX_LENGTH, validateTurnstile } from './turnstile';
 
+// CSP for HTML the Worker itself serves (public/_headers is authoritative for
+// static pages; keep the two in sync). No page needs style-src 'unsafe-inline':
+// all CSS lives in public/assets/*.css and the HTML has no inline <style>/style="".
 const HTML_CSP =
 	"default-src 'self'; " +
 	"script-src 'self' https://challenges.cloudflare.com; " +
-	"style-src 'self' 'unsafe-inline'; " +
+	"style-src 'self'; " +
 	"img-src 'self' data: https:; " +
 	"font-src 'self' data:; " +
 	"connect-src 'self' https://challenges.cloudflare.com; " +

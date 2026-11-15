@@ -12,22 +12,23 @@
   Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=()
   Strict-Transport-Security: max-age=63072000; includeSubDomains
 
-# CSP on the submission page. index.html has no inline <style>/style="" so it
-# does not need style-src 'unsafe-inline' (JS .style.* is CSSOM, not governed by
-# CSP). Allows the Turnstile script and iframe from challenges.cloudflare.com.
+# CSP on the submission page. Neither page has an inline <style> or style=""
+# (all CSS lives in assets/*.css), so no page needs style-src 'unsafe-inline'
+# (JS .style.* writes are CSSOM, not governed by CSP). Allows the Turnstile
+# script and iframe from challenges.cloudflare.com.
 /
   Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; upgrade-insecure-requests
 
 /index.html
   Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; upgrade-insecure-requests
 
-# report.html uses an inline <style> block and style="" attributes, so it
-# requires style-src 'unsafe-inline'. It needs no Turnstile origins.
+# report.html loads assets/report.css and has no inline styles either, so it
+# also runs with style-src 'self'. It needs no Turnstile origins.
 /report
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; upgrade-insecure-requests
 
 /report.html
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; upgrade-insecure-requests
 
 # Asset filenames are not content-hashed, so force revalidation on every load.
 # Combined with the ETag the runtime sets, this yields cheap 304s while
