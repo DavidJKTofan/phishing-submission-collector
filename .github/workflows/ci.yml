@@ -1,0 +1,42 @@
+# Runs the same gate AGENTS.md requires before every commit, on every push and
+# pull request. Nothing here needs Cloudflare credentials: `wrangler types`,
+# the dry-run deploys and the Vitest suite (workerd) all run locally in the
+# runner. The repository is public, so GitHub-hosted runners are free.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: check, test, dry-run deploys
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      # npm 11 blocks lifecycle scripts not listed in package.json#allowScripts;
+      # esbuild/workerd are allowlisted there, so `npm ci` installs their binaries.
+      - run: npm ci
+
+      - run: npm run check
+
+      - run: npm test
+
+      - run: npm run deploy:dry-run
+
+      - run: npm run deploy:staging:dry-run

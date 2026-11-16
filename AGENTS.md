@@ -28,6 +28,7 @@ A Cloudflare Worker that collects phishing reports, runs optional scanner APIs, 
 - `npm run deploy` / `npm run deploy:staging` — deploy. Production scripts pass `--env ""` explicitly (wrangler ≥ 4.13x warns when a multi-environment config is deployed without a target); never run bare `wrangler deploy` here.
 - `scripts/staging-check.sh` — after `npm run deploy:staging`, verifies staging end-to-end through Access (`--submit` also posts one test report; it creates a Discord approval message — Deny it).
 - Validate every change with: `npm run check && npm test && npm run deploy:dry-run && npm run check:startup`.
+- CI: `.github/workflows/ci.yml` runs `npm run check`, `npm test` and both dry-run deploys on every push to `main` and every pull request (no Cloudflare credentials needed; the repo is public, so hosted runners are free). It does not deploy — deploys stay manual (`npm run deploy:staging` → `scripts/staging-check.sh` → `npm run deploy`).
 
 ## Project rules
 - **Tests**: TypeScript, typechecked via `tests/tsconfig.json`. They execute in workerd, so Node APIs are limited to what `nodejs_compat` provides (`node:assert`, `node:buffer`, ...). Integration tests dispatch to the real Worker through `exports.default` from `cloudflare:workers` (the `env`/`SELF` exports of `cloudflare:test` are deprecated; `applyD1Migrations` still comes from `cloudflare:test`). The test D1 is seeded by applying `migrations/` in `tests/apply-migrations.ts` (injected as the `TEST_MIGRATIONS` binding), so read-path tests run against the real schema.
